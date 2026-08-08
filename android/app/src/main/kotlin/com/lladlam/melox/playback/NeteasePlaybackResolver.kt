@@ -11,9 +11,13 @@ import java.util.concurrent.ConcurrentHashMap
 
 @OptIn(UnstableApi::class)
 class NeteasePlaybackResolver(
-    private val client: NeteaseSearchClient = NeteaseSearchClient(),
+    private val cookieProvider: () -> String = { "" },
+    private val client: NeteaseSearchClient = NeteaseSearchClient(cookieProvider = cookieProvider),
 ) : ResolvingDataSource.Resolver {
     private val resolvedUris = ConcurrentHashMap<Long, Uri>()
+
+    @Volatile
+    private var cachedCookieHeader: String = cookieProvider()
 
     override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
         val uri = dataSpec.uri
@@ -23,6 +27,19 @@ class NeteasePlaybackResolver(
 
         val songId = uri.lastPathSegment?.toLongOrNull()
             ?: throw IOException("Invalid MeloX song URI: $uri")
+
+        // Playback URLs are permission-sensitive. If the user logs in/out or the
+        // MUSIC_U cookie is refreshed, never reuse a URL resolved under the old
+        // session. This is especially important for VIP tracks.
+        val currentCookieHeader = cookieProvider()
+        if (currentCookieHeader != cachedCookieHeader) {
+            synchronized(resolvedUris) {
+                if (currentCookieHeader != cachedCookieHeader) {
+                    resolvedUris.clear()
+                    cachedCookieHeader = currentCookieHeader
+                }
+            }
+        }
 
         val resolved = resolvedUris[songId] ?: run {
             val resolvedUrl = client.playbackUrlBlocking(songId)
