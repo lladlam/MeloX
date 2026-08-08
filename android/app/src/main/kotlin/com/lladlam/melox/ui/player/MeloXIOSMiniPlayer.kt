@@ -1,13 +1,5 @@
 package com.lladlam.melox.ui.player
 
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -33,68 +25,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MeloXIOSMiniPlayer(
     state: MeloXPlaybackUiState,
     onExpand: () -> Unit,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    morphProgress: Float = 0f,
+    onContainerBoundsChanged: (Rect) -> Unit = {},
+    onArtworkBoundsChanged: (Rect) -> Unit = {},
 ) {
     if (!state.hasMedia) return
 
     var accumulatedDrag by remember(state.mediaId) { mutableFloatStateOf(0f) }
-
-    // 0 = mini player fully visible, 1 = it has fully transformed into the
-    // full-screen player. Because this is driven by AnimatedVisibilityScope's
-    // own Transition and a spring, changing direction mid-flight keeps the
-    // current value/velocity instead of restarting a scripted animation.
-    val expansionProgress = if (animatedVisibilityScope != null) {
-        val value by animatedVisibilityScope.transition.animateFloat(
-            transitionSpec = {
-                spring(
-                    dampingRatio = 0.90f,
-                    stiffness = 320f,
-                    visibilityThreshold = 0.001f,
-                )
-            },
-            label = "mini-player-expansion-progress",
-        ) { visibility ->
-            if (visibility == EnterExitState.Visible) 0f else 1f
-        }
-        value
-    } else {
-        0f
-    }
-
-    val miniChromeAlpha = 1f - smoothStep(expansionProgress, 0.02f, 0.34f)
-    val miniSurfaceAlpha = 1f - smoothStep(expansionProgress, 0.06f, 0.62f)
-
-    val sharedContainerModifier =
-        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            with(sharedTransitionScope) {
-                Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState(
-                        key = sharedPlayerContainerKey(state.mediaId),
-                    ),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    enter = EnterTransition.None,
-                    exit = ExitTransition.None,
-                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
-                )
-            }
-        } else {
-            Modifier
-        }
+    val sourceAlpha = 1f - smoothStepMini(morphProgress, 0f, 0.065f)
 
     Box(
         modifier = Modifier
@@ -102,8 +56,10 @@ fun MeloXIOSMiniPlayer(
             .padding(horizontal = 14.dp, vertical = 3.dp),
     ) {
         Surface(
-            modifier = sharedContainerModifier
+            modifier = Modifier
                 .fillMaxWidth()
+                .onGloballyPositioned { onContainerBoundsChanged(it.boundsInRoot()) }
+                .graphicsLayer { alpha = sourceAlpha }
                 .pointerInput(state.mediaId) {
                     detectHorizontalDragGestures(
                         onDragStart = { accumulatedDrag = 0f },
@@ -119,13 +75,13 @@ fun MeloXIOSMiniPlayer(
                     )
                 },
             shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f * miniSurfaceAlpha),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             border = BorderStroke(
                 0.8.dp,
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f * miniSurfaceAlpha),
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
             ),
             tonalElevation = 0.dp,
-            shadowElevation = (5f * miniSurfaceAlpha).dp,
+            shadowElevation = 5.dp,
         ) {
             Row(
                 modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
@@ -139,32 +95,15 @@ fun MeloXIOSMiniPlayer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    val sharedArtworkModifier =
-                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                            with(sharedTransitionScope) {
-                                Modifier.sharedElement(
-                                    sharedContentState = rememberSharedContentState(
-                                        key = sharedArtworkKey(state.mediaId),
-                                    ),
-                                    animatedVisibilityScope = animatedVisibilityScope,
-                                )
-                            }
-                        } else {
-                            Modifier
-                        }
-
                     Artwork(
                         url = state.artworkUrl,
-                        modifier = sharedArtworkModifier
+                        modifier = Modifier
                             .size(40.dp)
+                            .onGloballyPositioned { onArtworkBoundsChanged(it.boundsInRoot()) }
                             .clip(RoundedCornerShape(10.dp)),
                     )
 
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .graphicsLayer { alpha = miniChromeAlpha },
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = state.title.ifBlank { "正在播放" },
                             maxLines = 1,
@@ -187,13 +126,11 @@ fun MeloXIOSMiniPlayer(
                     kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
                     enabled = true,
                     onClick = state::togglePlayPause,
-                    modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
                 )
                 MiniVectorButton(
                     kind = MiniGlyph.Forward,
                     enabled = state.hasNext || state.repeatMode != 0,
                     onClick = state::next,
-                    modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
                 )
             }
         }
@@ -207,11 +144,10 @@ private fun MiniVectorButton(
     kind: MiniGlyph,
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.94f else 0.26f)
     Box(
-        modifier = modifier
+        modifier = Modifier
             .size(36.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
@@ -263,8 +199,8 @@ private fun MiniVectorButton(
     }
 }
 
-private fun smoothStep(value: Float, start: Float, end: Float): Float {
+private fun smoothStepMini(value: Float, start: Float, end: Float): Float {
     if (end <= start) return if (value >= end) 1f else 0f
-    val t = ((value - start) / (end - start)).coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
+    val x = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
 }
