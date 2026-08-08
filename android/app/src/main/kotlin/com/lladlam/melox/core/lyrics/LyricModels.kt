@@ -1,9 +1,16 @@
 package com.lladlam.melox.core.lyrics
 
+data class LyricSyllable(
+    val text: String,
+    val startTimeMs: Long,
+    val endTimeMs: Long,
+)
+
 data class LyricLine(
     val timeMs: Long,
     val durationMs: Long? = null,
     val text: String,
+    val syllables: List<LyricSyllable> = emptyList(),
     val translation: String? = null,
     val romanization: String? = null,
 )
@@ -30,7 +37,7 @@ data class LyricsDocument(
 object NeteaseLyricParser {
     private const val ANNOTATION_TOLERANCE_MS = 750L
     private val lrcTimestamp = Regex("\\[(\\d+):(\\d+(?:[.:]\\d+)?)\\]")
-    private val yrcSyllableTiming = Regex("\\(\\d+,\\d+,\\d+\\)")
+    private val yrcSyllableTiming = Regex("\\((\\d+),(\\d+),(\\d+)\\)")
 
     fun parse(
         yrc: String,
@@ -92,13 +99,45 @@ object NeteaseLyricParser {
             val startMs = timing.getOrNull(0)?.toLongOrNull() ?: continue
             val durationMs = timing.getOrNull(1)?.toLongOrNull()
             val content = line.substring(close + 1)
-            val text = content.replace(yrcSyllableTiming, "").trim()
-            if (text.isBlank()) continue
+            val matches = yrcSyllableTiming.findAll(content).toList()
 
+            if (matches.isEmpty()) {
+                val text = content.trim()
+                if (text.isBlank()) continue
+                result += LyricLine(
+                    timeMs = startMs,
+                    durationMs = durationMs,
+                    text = text,
+                )
+                continue
+            }
+
+            val syllables = buildList {
+                for ((index, match) in matches.withIndex()) {
+                    val syllableStartMs = match.groupValues[1].toLongOrNull() ?: continue
+                    val syllableDurationMs = match.groupValues[2].toLongOrNull() ?: continue
+                    val textStart = match.range.last + 1
+                    val textEnd = matches.getOrNull(index + 1)?.range?.first ?: content.length
+                    if (textEnd < textStart) continue
+                    val syllableText = content.substring(textStart, textEnd)
+                    if (syllableText.isEmpty()) continue
+                    add(
+                        LyricSyllable(
+                            text = syllableText,
+                            startTimeMs = syllableStartMs,
+                            endTimeMs = syllableStartMs + syllableDurationMs.coerceAtLeast(1L),
+                        ),
+                    )
+                }
+            }
+
+            val text = syllables.joinToString("") { it.text }.trim()
+            if (text.isBlank()) continue
             result += LyricLine(
                 timeMs = startMs,
                 durationMs = durationMs,
                 text = text,
+                syllables = syllables,
             )
         }
         return result.sortedBy { it.timeMs }
