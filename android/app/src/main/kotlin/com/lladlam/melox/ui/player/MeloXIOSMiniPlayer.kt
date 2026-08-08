@@ -3,6 +3,9 @@ package com.lladlam.melox.ui.player
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -48,95 +51,124 @@ fun MeloXIOSMiniPlayer(
 
     var accumulatedDrag by remember(state.mediaId) { mutableFloatStateOf(0f) }
 
-    Surface(
+    val sharedContainerModifier =
+        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            with(sharedTransitionScope) {
+                Modifier.sharedBounds(
+                    sharedContentState = rememberSharedContentState(
+                        key = sharedPlayerContainerKey(state.mediaId),
+                    ),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = 190,
+                            delayMillis = 260,
+                        ),
+                    ),
+                    exit = fadeOut(
+                        animationSpec = tween(durationMillis = 150),
+                    ),
+                    resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
+                )
+            }
+        } else {
+            Modifier
+        }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 3.dp)
-            .pointerInput(state.mediaId) {
-                detectHorizontalDragGestures(
-                    onDragStart = { accumulatedDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount -> accumulatedDrag += dragAmount },
-                    onDragEnd = {
-                        when {
-                            accumulatedDrag <= -48f -> state.next()
-                            accumulatedDrag >= 48f -> state.previous()
-                        }
-                        accumulatedDrag = 0f
-                    },
-                    onDragCancel = { accumulatedDrag = 0f },
-                )
-            },
-        shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-        border = BorderStroke(
-            0.8.dp,
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-        ),
-        tonalElevation = 0.dp,
-        shadowElevation = 5.dp,
+            .padding(horizontal = 14.dp, vertical = 3.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Surface(
+            modifier = sharedContainerModifier
+                .fillMaxWidth()
+                .pointerInput(state.mediaId) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { accumulatedDrag = 0f },
+                        onHorizontalDrag = { _, dragAmount -> accumulatedDrag += dragAmount },
+                        onDragEnd = {
+                            when {
+                                accumulatedDrag <= -48f -> state.next()
+                                accumulatedDrag >= 48f -> state.previous()
+                            }
+                            accumulatedDrag = 0f
+                        },
+                        onDragCancel = { accumulatedDrag = 0f },
+                    )
+                },
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+            border = BorderStroke(
+                0.8.dp,
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+            ),
+            tonalElevation = 0.dp,
+            shadowElevation = 5.dp,
         ) {
             Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(onClick = onExpand),
+                modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                val sharedArtworkModifier =
-                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-                        with(sharedTransitionScope) {
-                            Modifier.sharedElement(
-                                sharedContentState = rememberSharedContentState(
-                                    key = sharedArtworkKey(state.mediaId),
-                                ),
-                                animatedVisibilityScope = animatedVisibilityScope,
-                            )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onExpand),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    val sharedArtworkModifier =
+                        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                            with(sharedTransitionScope) {
+                                Modifier.sharedElement(
+                                    sharedContentState = rememberSharedContentState(
+                                        key = sharedArtworkKey(state.mediaId),
+                                    ),
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                )
+                            }
+                        } else {
+                            Modifier
                         }
-                    } else {
-                        Modifier
+
+                    Artwork(
+                        url = state.artworkUrl,
+                        modifier = sharedArtworkModifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp)),
+                    )
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = state.title.ifBlank { "正在播放" },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = state.artist,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
+                        )
                     }
-
-                Artwork(
-                    url = state.artworkUrl,
-                    modifier = sharedArtworkModifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                )
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = state.title.ifBlank { "正在播放" },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = state.artist,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
-                    )
                 }
-            }
 
-            MiniVectorButton(
-                kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
-                enabled = true,
-                onClick = state::togglePlayPause,
-            )
-            MiniVectorButton(
-                kind = MiniGlyph.Forward,
-                enabled = state.hasNext || state.repeatMode != 0,
-                onClick = state::next,
-            )
+                MiniVectorButton(
+                    kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
+                    enabled = true,
+                    onClick = state::togglePlayPause,
+                )
+                MiniVectorButton(
+                    kind = MiniGlyph.Forward,
+                    enabled = state.hasNext || state.repeatMode != 0,
+                    onClick = state::next,
+                )
+            }
         }
     }
 }
