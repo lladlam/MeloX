@@ -100,7 +100,10 @@ fun MeloXApp(
             AnimatedContent(
                 targetState = showNowPlaying && playbackState.hasMedia,
                 transitionSpec = {
-                    (fadeIn(tween(280)) togetherWith fadeOut(tween(220))).using(null)
+                    // Keep AnimatedContent only as the lifecycle/visibility host.
+                    // The visual motion belongs to sharedBounds/sharedElement so
+                    // opening and closing can be exact reverses of one another.
+                    (fadeIn(tween(1)) togetherWith fadeOut(tween(1))).using(null)
                 },
                 modifier = Modifier.fillMaxSize(),
                 label = "melox-root-player-transition",
