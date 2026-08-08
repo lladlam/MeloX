@@ -47,7 +47,7 @@ object PlaybackCommands {
                     val controller = controllerFuture.get()
                     val queue = songs
                         .ifEmpty { return@addListener }
-                        .map(SearchSong::toMediaItem)
+                        .map { song -> song.toMediaItem() }
                     val startIndex = songs.indexOfFirst { it.id == selectedSongId }
                         .takeIf { it >= 0 }
                         ?: 0
