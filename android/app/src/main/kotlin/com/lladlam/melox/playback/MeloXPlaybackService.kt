@@ -2,12 +2,20 @@ package com.lladlam.melox.playback
 
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
+@OptIn(UnstableApi::class)
 class MeloXPlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
@@ -15,7 +23,34 @@ class MeloXPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        val exoPlayer = ExoPlayer.Builder(this).build()
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setDefaultRequestProperties(
+                mapOf(
+                    "User-Agent" to "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36",
+                    "Referer" to "https://music.163.com/",
+                ),
+            )
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(httpDataSourceFactory)
+
+        val exoPlayer = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+
+        exoPlayer.addListener(
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e(
+                        TAG,
+                        "Playback failed: code=${error.errorCodeName}, message=${error.message}",
+                        error,
+                    )
+                }
+            },
+        )
+
         player = exoPlayer
         mediaSession = MediaSession.Builder(this, exoPlayer).build()
     }
@@ -38,6 +73,8 @@ class MeloXPlaybackService : MediaSessionService() {
         val artists = intent.getStringExtra(PlaybackCommands.EXTRA_ARTISTS).orEmpty()
         val album = intent.getStringExtra(PlaybackCommands.EXTRA_ALBUM).orEmpty()
         val artwork = intent.getStringExtra(PlaybackCommands.EXTRA_ARTWORK)
+
+        Log.d(TAG, "Preparing playback for song=$id url=$url")
 
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -73,5 +110,9 @@ class MeloXPlaybackService : MediaSessionService() {
         player?.release()
         player = null
         super.onDestroy()
+    }
+
+    private companion object {
+        const val TAG = "MeloXPlayback"
     }
 }
