@@ -1,15 +1,13 @@
 package com.lladlam.melox.ui.player
 
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,16 +22,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,18 +36,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 
-private const val PLAYER_CONTAINER_DURATION_MS = 470
-private const val SHARED_ARTWORK_DURATION_MS = 470
-private const val FULL_CONTROLS_REVEAL_DELAY_MS = 300
-private const val FULL_CONTROLS_REVEAL_DURATION_MS = 170
-
 /**
- * Root Apple-Music-style container transform.
+ * Apple-Music-style container transform driven by one reversible progress.
  *
- * The mini-player capsule and this full-screen container share bounds, while
- * the artwork inside them is a real shared element. The player chrome is
- * intentionally delayed until the artwork is roughly two thirds of the way
- * to its destination.
+ * 0f = mini player
+ * 1f = full player
+ *
+ * Both opening and closing use the same AnimatedVisibility transition. If the
+ * target changes while the spring is still moving, Compose retargets from the
+ * current value and velocity instead of restarting a fixed-duration script.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -64,20 +54,22 @@ fun MeloXIOSNowPlayingSharedHost(
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
-    var revealFullPlayer by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        revealFullPlayer = true
+    val expansionProgress by animatedVisibilityScope.transition.animateFloat(
+        transitionSpec = {
+            spring(
+                dampingRatio = 0.90f,
+                stiffness = 320f,
+                visibilityThreshold = 0.001f,
+            )
+        },
+        label = "full-player-expansion-progress",
+    ) { visibility ->
+        if (visibility == EnterExitState.Visible) 1f else 0f
     }
 
-    val fullPlayerAlpha by animateFloatAsState(
-        targetValue = if (revealFullPlayer) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = FULL_CONTROLS_REVEAL_DURATION_MS,
-            delayMillis = FULL_CONTROLS_REVEAL_DELAY_MS,
-            easing = FastOutSlowInEasing,
-        ),
-        label = "full-player-delayed-reveal",
-    )
+    val backdropAlpha = smoothStep(expansionProgress, 0.04f, 0.72f)
+    val fullPlayerAlpha = smoothStep(expansionProgress, 0.64f, 0.98f)
+    val cornerRadius = (22f * (1f - smoothStep(expansionProgress, 0f, 0.82f))).dp
 
     val sharedContainerModifier = with(sharedTransitionScope) {
         Modifier.sharedBounds(
@@ -85,30 +77,27 @@ fun MeloXIOSNowPlayingSharedHost(
                 key = sharedPlayerContainerKey(state.mediaId),
             ),
             animatedVisibilityScope = animatedVisibilityScope,
-            boundsTransform = playerContainerBoundsTransform,
-            enter = fadeIn(
-                animationSpec = tween(
-                    durationMillis = PLAYER_CONTAINER_DURATION_MS,
-                    easing = FastOutSlowInEasing,
-                ),
-            ),
-            exit = fadeOut(
-                animationSpec = tween(durationMillis = 180),
-            ),
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
             resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
         )
     }
 
     Box(
-        modifier = sharedContainerModifier.fillMaxSize(),
+        modifier = sharedContainerModifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(cornerRadius)),
     ) {
-        // This backdrop participates from the beginning of the container
-        // transform, so the mini-player surface gradually becomes artwork
-        // colour instead of cutting to a full-screen background at the end.
-        MeloXExpansionBackdrop(state.artworkUrl)
+        // The artwork-derived background starts appearing while the capsule is
+        // still expanding. The same alpha is traversed backwards when closing.
+        MeloXExpansionBackdrop(
+            artworkUrl = state.artworkUrl,
+            alpha = backdropAlpha,
+        )
 
-        // The full player itself stays invisible during the first ~2/3 of the
-        // morph. Its controls then fade into their final fixed positions.
+        // Full controls stay at their final positions. They only become visible
+        // after the container/artwork has covered roughly two thirds of the
+        // journey. On close this exact mapping runs in reverse.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -122,9 +111,8 @@ fun MeloXIOSNowPlayingSharedHost(
             )
         }
 
-        // The artwork is independently shared so it travels from the mini
-        // player's lower-left corner to the full-player artwork position while
-        // the container itself expands behind it.
+        // Artwork remains a true shared element inside the transforming
+        // container. It is not faded together with mini-player chrome.
         SharedArtworkDestination(
             state = state,
             sharedTransitionScope = sharedTransitionScope,
@@ -134,10 +122,14 @@ fun MeloXIOSNowPlayingSharedHost(
 }
 
 @Composable
-private fun MeloXExpansionBackdrop(artworkUrl: String?) {
+private fun MeloXExpansionBackdrop(
+    artworkUrl: String?,
+    alpha: Float,
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { this.alpha = alpha }
             .background(Color.Black),
     ) {
         if (!artworkUrl.isNullOrBlank()) {
@@ -215,7 +207,6 @@ private fun SharedArtworkDestination(
                             key = sharedArtworkKey(state.mediaId),
                         ),
                         animatedVisibilityScope = animatedVisibilityScope,
-                        boundsTransform = artworkBoundsTransform,
                     )
                 }
 
@@ -232,7 +223,7 @@ private fun SharedArtworkDestination(
                 Spacer(Modifier.height(22.dp))
 
                 // Geometry twins only; they keep the shared artwork's final
-                // position aligned with the real artwork page underneath.
+                // destination identical to the real artwork page below it.
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         text = state.title.ifBlank { "正在播放" },
@@ -260,20 +251,8 @@ private fun SharedArtworkDestination(
     }
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
-private val playerContainerBoundsTransform = BoundsTransform { initialBounds: Rect, targetBounds: Rect ->
-    keyframes {
-        durationMillis = PLAYER_CONTAINER_DURATION_MS
-        initialBounds at 0 using FastOutSlowInEasing
-        targetBounds at PLAYER_CONTAINER_DURATION_MS using FastOutSlowInEasing
-    }
-}
-
-@OptIn(ExperimentalSharedTransitionApi::class)
-private val artworkBoundsTransform = BoundsTransform { initialBounds: Rect, targetBounds: Rect ->
-    keyframes {
-        durationMillis = SHARED_ARTWORK_DURATION_MS
-        initialBounds at 0 using FastOutSlowInEasing
-        targetBounds at SHARED_ARTWORK_DURATION_MS using FastOutSlowInEasing
-    }
+private fun smoothStep(value: Float, start: Float, end: Float): Float {
+    if (end <= start) return if (value >= end) 1f else 0f
+    val t = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
 }
