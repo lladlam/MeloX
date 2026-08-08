@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,10 +46,18 @@ enum class AppTab(val title: String) {
 }
 
 @Composable
-fun MeloXApp() {
+fun MeloXApp(
+    openNowPlayingRequest: Int = 0,
+) {
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
     var showNowPlaying by remember { mutableStateOf(false) }
     val playbackState = rememberMeloXPlaybackUiState()
+
+    LaunchedEffect(openNowPlayingRequest, playbackState.hasMedia) {
+        if (openNowPlayingRequest > 0 && playbackState.hasMedia) {
+            showNowPlaying = true
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
