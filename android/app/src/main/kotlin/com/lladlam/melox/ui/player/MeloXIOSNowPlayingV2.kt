@@ -1,20 +1,32 @@
 package com.lladlam.melox.ui.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +41,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -38,11 +52,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,11 +65,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.Player
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlin.math.roundToLong
+
+private const val PLAYER_CONTROLS_HEIGHT = 279
 
 @Composable
 fun MeloXIOSNowPlayingV2(
@@ -70,7 +86,7 @@ fun MeloXIOSNowPlayingV2(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        MeloXIOSBackdrop(state.artworkUrl)
+        MeloXAnimatedBackdrop(state.artworkUrl)
 
         Column(
             modifier = Modifier
@@ -78,41 +94,18 @@ fun MeloXIOSNowPlayingV2(
                 .statusBarsPadding()
                 .padding(horizontal = 32.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-                    .clickable(onClick = onDismiss),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 8.dp)
-                        .size(width = 60.dp, height = 5.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.52f)),
-                )
-            }
+            MeloXGrabber(onDismiss)
 
             AnimatedContent(
                 targetState = page,
-                transitionSpec = {
-                    if (
-                        initialState != MeloXNowPlayingPage.Artwork &&
-                        targetState != MeloXNowPlayingPage.Artwork
-                    ) {
-                        fadeIn(tween(440)) togetherWith fadeOut(tween(300))
-                    } else {
-                        fadeIn(tween(300)) togetherWith fadeOut(tween(240))
-                    }
-                },
+                transitionSpec = { pageTransform(initialState, targetState) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                label = "melox-ios-now-playing-page-v2",
+                label = "melox-now-playing-pages-v3",
             ) { selectedPage ->
                 when (selectedPage) {
-                    MeloXNowPlayingPage.Artwork -> MeloXIOSArtworkPageV2(state)
+                    MeloXNowPlayingPage.Artwork -> MeloXArtworkPageV3(state)
                     MeloXNowPlayingPage.Lyrics -> MeloXIOSLyricsPanel(
                         state = state,
                         modifier = Modifier.fillMaxSize(),
@@ -124,7 +117,7 @@ fun MeloXIOSNowPlayingV2(
                 }
             }
 
-            MeloXIOSBottomControlsV2(
+            MeloXBottomControlsV3(
                 state = state,
                 page = page,
                 onPageSelected = { destination ->
@@ -140,36 +133,88 @@ fun MeloXIOSNowPlayingV2(
 }
 
 @Composable
-private fun MeloXIOSBackdrop(artworkUrl: String?) {
+private fun MeloXGrabber(onDismiss: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "grabber-scale",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(30.dp)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .size(width = 60.dp, height = 5.dp)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.52f)),
+        )
+    }
+}
+
+@Composable
+private fun MeloXAnimatedBackdrop(artworkUrl: String?) {
     Box(Modifier.fillMaxSize()) {
-        if (!artworkUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = artworkUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(1.34f)
-                    .blur(
-                        radius = 46.dp,
-                        edgeTreatment = BlurredEdgeTreatment.Unbounded,
-                    ),
-            )
+        AnimatedContent(
+            targetState = artworkUrl,
+            transitionSpec = {
+                fadeIn(tween(420)) togetherWith fadeOut(tween(420))
+            },
+            label = "artwork-backdrop-crossfade",
+        ) { url ->
+            if (!url.isNullOrBlank()) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = 1.30f
+                            scaleY = 1.30f
+                        }
+                        .blur(
+                            radius = 46.dp,
+                            edgeTreatment = BlurredEdgeTreatment.Unbounded,
+                        ),
+                )
+            } else {
+                Box(Modifier.fillMaxSize().background(Color(0xFF171717)))
+            }
         }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.12f)),
+                .background(Color.Black.copy(alpha = 0.11f)),
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.03f),
-                            Color.Black.copy(alpha = 0.12f),
-                            Color.Black.copy(alpha = 0.50f),
+                        listOf(
+                            Color.Black.copy(alpha = 0.02f),
+                            Color.Black.copy(alpha = 0.10f),
+                            Color.Black.copy(alpha = 0.48f),
                         ),
                     ),
                 ),
@@ -177,65 +222,167 @@ private fun MeloXIOSBackdrop(artworkUrl: String?) {
     }
 }
 
-@Composable
-private fun MeloXIOSArtworkPageV2(state: MeloXPlaybackUiState) {
-    val artworkScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (state.isPlaying) 1f else 0.74f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 210f),
-        label = "melox-ios-artwork-scale-v2",
-    )
+private fun pageTransform(
+    initial: MeloXNowPlayingPage,
+    target: MeloXNowPlayingPage,
+): ContentTransform {
+    val directLyricsQueue =
+        (initial == MeloXNowPlayingPage.Lyrics && target == MeloXNowPlayingPage.Queue) ||
+            (initial == MeloXNowPlayingPage.Queue && target == MeloXNowPlayingPage.Lyrics)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.weight(0.34f))
-
-        Artwork(
-            url = state.artworkUrl,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .scale(artworkScale)
-                .shadow(
-                    elevation = if (state.isPlaying) 26.dp else 14.dp,
-                    shape = RoundedCornerShape(12.dp),
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = 0.34f),
-                    spotColor = Color.Black.copy(alpha = 0.34f),
+    if (directLyricsQueue) {
+        return (
+            fadeIn(tween(440)) +
+                scaleIn(
+                    initialScale = 0.92f,
+                    animationSpec = tween(440, easing = FastOutSlowInEasing),
                 )
-                .clip(RoundedCornerShape(12.dp)),
-        )
-
-        Spacer(Modifier.weight(0.18f))
-
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = state.title.ifBlank { "正在播放" },
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
+            ) togetherWith (
+            fadeOut(tween(300)) +
+                scaleOut(
+                    targetScale = 0.92f,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                )
             )
-            Text(
-                text = state.artist,
-                color = Color.White.copy(alpha = 0.64f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 19.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
+    }
 
-        Spacer(Modifier.height(14.dp))
+    return when (target) {
+        MeloXNowPlayingPage.Artwork -> (
+            fadeIn(tween(220, delayMillis = 70)) +
+                slideInVertically(
+                    animationSpec = tween(220, delayMillis = 70, easing = FastOutSlowInEasing),
+                    initialOffsetY = { -(it * 0.42f).toInt() },
+                )
+            ) togetherWith (
+            fadeOut(tween(240)) +
+                slideOutVertically(
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    targetOffsetY = { -(it * 0.42f).toInt() },
+                )
+            )
+
+        MeloXNowPlayingPage.Lyrics -> (
+            fadeIn(tween(340, delayMillis = 110)) +
+                slideInVertically(
+                    animationSpec = tween(340, delayMillis = 110, easing = FastOutSlowInEasing),
+                    initialOffsetY = { (it * 0.58f).toInt() },
+                )
+            ) togetherWith (
+            fadeOut(tween(240)) +
+                slideOutVertically(
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    targetOffsetY = { (it * 0.58f).toInt() },
+                )
+            )
+
+        MeloXNowPlayingPage.Queue -> (
+            fadeIn(tween(220, delayMillis = 70)) +
+                slideInVertically(
+                    animationSpec = tween(220, delayMillis = 70, easing = FastOutSlowInEasing),
+                    initialOffsetY = { (it * 0.58f).toInt() },
+                )
+            ) togetherWith (
+            fadeOut(tween(240)) +
+                slideOutVertically(
+                    animationSpec = tween(240, easing = FastOutSlowInEasing),
+                    targetOffsetY = { (it * 0.58f).toInt() },
+                )
+            )
     }
 }
 
 @Composable
-private fun MeloXIOSBottomControlsV2(
+private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
+    val pausedScale by animateFloatAsState(
+        targetValue = if (state.isPlaying) 1f else 0.74f,
+        animationSpec = tween(480, easing = FastOutSlowInEasing),
+        label = "artwork-paused-scale-v3",
+    )
+    val bounce = remember(state.mediaId) { Animatable(1f) }
+
+    LaunchedEffect(state.isPlaying, state.mediaId) {
+        bounce.snapTo(1f)
+        if (state.isPlaying) {
+            bounce.animateTo(
+                targetValue = 1.055f,
+                animationSpec = tween(170, easing = FastOutSlowInEasing),
+            )
+            bounce.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.76f,
+                    stiffness = 330f,
+                ),
+            )
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val artworkSize = maxOf(
+            170.dp,
+            minOf(maxWidth + 16.dp, maxHeight - 92.dp),
+        )
+
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.weight(1f))
+
+            Box(
+                modifier = Modifier.size(artworkSize),
+                contentAlignment = Alignment.Center,
+            ) {
+                Artwork(
+                    url = state.artworkUrl,
+                    modifier = Modifier
+                        .size(artworkSize)
+                        .graphicsLayer {
+                            val scale = pausedScale * bounce.value
+                            scaleX = scale
+                            scaleY = scale
+                        }
+                        .shadow(
+                            elevation = if (state.isPlaying) 26.dp else 14.dp,
+                            shape = RoundedCornerShape(12.dp),
+                            clip = false,
+                            ambientColor = Color.Black.copy(alpha = if (state.isPlaying) 0.34f else 0.18f),
+                            spotColor = Color.Black.copy(alpha = if (state.isPlaying) 0.34f else 0.18f),
+                        )
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = state.title.ifBlank { "正在播放" },
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = state.artist,
+                    color = Color.White.copy(alpha = 0.64f),
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun MeloXBottomControlsV3(
     state: MeloXPlaybackUiState,
     page: MeloXNowPlayingPage,
     onPageSelected: (MeloXNowPlayingPage) -> Unit,
@@ -243,15 +390,15 @@ private fun MeloXIOSBottomControlsV2(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(279.dp),
+            .height(PLAYER_CONTROLS_HEIGHT.dp),
     ) {
-        MeloXIOSProgressControlV2(state)
+        MeloXProgressControlV3(state)
         Spacer(Modifier.height(19.dp))
-        MeloXIOSTransportControlsV2(state)
+        MeloXTransportControlsV3(state)
         Spacer(Modifier.height(31.dp))
-        MeloXIOSVolumeControlV2(state)
+        MeloXVolumeControlV3(state)
         Spacer(Modifier.height(3.dp))
-        MeloXIOSPageSelectorV2(
+        MeloXPageSelectorV3(
             state = state,
             page = page,
             onPageSelected = onPageSelected,
@@ -260,11 +407,22 @@ private fun MeloXIOSBottomControlsV2(
 }
 
 @Composable
-private fun MeloXIOSProgressControlV2(state: MeloXPlaybackUiState) {
-    val progress = if (state.durationMs > 0L) {
+private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
+    val sourceProgress = if (state.durationMs > 0L) {
         (state.positionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
+    }
+    var scrubbing by remember { mutableStateOf(false) }
+    var localProgress by remember { mutableFloatStateOf(sourceProgress) }
+    val trackHeight by animateDpAsState(
+        targetValue = if (scrubbing) 5.dp else 3.dp,
+        animationSpec = tween(120),
+        label = "progress-track-height",
+    )
+
+    LaunchedEffect(sourceProgress, scrubbing) {
+        if (!scrubbing) localProgress = sourceProgress
     }
 
     Column(
@@ -274,11 +432,16 @@ private fun MeloXIOSProgressControlV2(state: MeloXPlaybackUiState) {
         verticalArrangement = Arrangement.Center,
     ) {
         Slider(
-            value = progress,
-            onValueChange = { value ->
+            value = localProgress,
+            onValueChange = {
+                scrubbing = true
+                localProgress = it.coerceIn(0f, 1f)
+            },
+            onValueChangeFinished = {
                 if (state.durationMs > 0L) {
-                    state.seekTo((state.durationMs * value).roundToLong())
+                    state.seekTo((state.durationMs * localProgress).roundToLong())
                 }
+                scrubbing = false
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -288,15 +451,15 @@ private fun MeloXIOSProgressControlV2(state: MeloXPlaybackUiState) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(trackHeight)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f)),
+                        .background(Color.White.copy(alpha = 0.20f)),
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .fillMaxWidth(localProgress)
                             .fillMaxHeight()
-                            .background(Color.White),
+                            .background(Color.White.copy(alpha = 0.96f)),
                     )
                 }
             },
@@ -308,42 +471,66 @@ private fun MeloXIOSProgressControlV2(state: MeloXPlaybackUiState) {
                 .height(26.dp),
         ) {
             Text(
-                text = formatDurationV2(state.positionMs),
+                text = formatDurationV3(
+                    if (scrubbing) (state.durationMs * localProgress).roundToLong() else state.positionMs,
+                ),
                 modifier = Modifier.align(Alignment.CenterStart),
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
             )
 
-            MeloXQualityChipV2(
-                modifier = Modifier.align(Alignment.Center),
-            )
+            MeloXQualityChipV3(modifier = Modifier.align(Alignment.Center))
 
+            val shownPosition = if (scrubbing) {
+                (state.durationMs * localProgress).roundToLong()
+            } else {
+                state.positionMs
+            }
             Text(
-                text = "−${formatDurationV2((state.durationMs - state.positionMs).coerceAtLeast(0L))}",
+                text = "−${formatDurationV3((state.durationMs - shownPosition).coerceAtLeast(0L))}",
                 modifier = Modifier.align(Alignment.CenterEnd),
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
     }
 }
 
 @Composable
-private fun MeloXQualityChipV2(modifier: Modifier = Modifier) {
+private fun MeloXQualityChipV3(modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessHigh,
+        ),
+        label = "quality-chip-press",
+    )
 
     Box(modifier = modifier) {
         Row(
             modifier = Modifier
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
                 .clip(RoundedCornerShape(7.dp))
                 .background(Color.White.copy(alpha = 0.12f))
-                .clickable { expanded = true }
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                ) { expanded = true }
                 .padding(horizontal = 9.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            MeloXGlyph(
-                glyph = MeloXGlyphKind.Waveform,
+            CupertinoGlyph(
+                kind = CupertinoGlyphKind.Waveform,
                 modifier = Modifier.size(11.dp),
                 color = Color.White.copy(alpha = 0.86f),
             )
@@ -360,7 +547,7 @@ private fun MeloXQualityChipV2(modifier: Modifier = Modifier) {
             onDismissRequest = { expanded = false },
         ) {
             DropdownMenuItem(
-                text = { Text("✓ 标准") },
+                text = { Text("标准") },
                 onClick = { expanded = false },
             )
         }
@@ -368,7 +555,7 @@ private fun MeloXQualityChipV2(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun MeloXIOSTransportControlsV2(state: MeloXPlaybackUiState) {
+private fun MeloXTransportControlsV3(state: MeloXPlaybackUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -376,24 +563,21 @@ private fun MeloXIOSTransportControlsV2(state: MeloXPlaybackUiState) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Spacer(Modifier.weight(1f))
-        MeloXTransportIconButtonV2(
-            glyph = MeloXGlyphKind.Backward,
+        CupertinoTransportButton(
+            kind = CupertinoGlyphKind.Backward,
             visualSize = 34.dp,
-            enabled = state.hasPrevious || state.repeatMode == Player.REPEAT_MODE_ALL,
-            onClick = state::previous,
+            onClick = {
+                if (state.hasPrevious) state.previous() else state.seekTo(0L)
+            },
         )
         Spacer(Modifier.weight(1f))
-        MeloXTransportIconButtonV2(
-            glyph = if (state.isPlaying) MeloXGlyphKind.Pause else MeloXGlyphKind.Play,
-            visualSize = 48.dp,
-            enabled = true,
-            onClick = state::togglePlayPause,
-        )
+
+        CupertinoPlayPauseButton(state)
+
         Spacer(Modifier.weight(1f))
-        MeloXTransportIconButtonV2(
-            glyph = MeloXGlyphKind.Forward,
+        CupertinoTransportButton(
+            kind = CupertinoGlyphKind.Forward,
             visualSize = 34.dp,
-            enabled = state.hasNext || state.repeatMode == Player.REPEAT_MODE_ALL,
             onClick = state::next,
         )
         Spacer(Modifier.weight(1f))
@@ -401,29 +585,116 @@ private fun MeloXIOSTransportControlsV2(state: MeloXPlaybackUiState) {
 }
 
 @Composable
-private fun MeloXTransportIconButtonV2(
-    glyph: MeloXGlyphKind,
-    visualSize: androidx.compose.ui.unit.Dp,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
+private fun CupertinoPlayPauseButton(state: MeloXPlaybackUiState) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.86f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = 620f,
+        ),
+        label = "play-pause-press",
+    )
+
     Box(
         modifier = Modifier
             .size(64.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = state::togglePlayPause,
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        MeloXGlyph(
-            glyph = glyph,
+        AnimatedContent(
+            targetState = state.isPlaying,
+            transitionSpec = {
+                (
+                    fadeIn(tween(180)) +
+                        scaleIn(initialScale = 0.78f, animationSpec = tween(200)) +
+                        slideInVertically(tween(200)) { (it * 0.24f).toInt() }
+                    ) togetherWith (
+                    fadeOut(tween(150)) +
+                        scaleOut(targetScale = 0.78f, animationSpec = tween(180)) +
+                        slideOutVertically(tween(180)) { -(it * 0.24f).toInt() }
+                    )
+            },
+            label = "play-pause-symbol-replace",
+        ) { playing ->
+            CupertinoGlyph(
+                kind = if (playing) CupertinoGlyphKind.Pause else CupertinoGlyphKind.Play,
+                modifier = Modifier.size(48.dp),
+                color = Color.White,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CupertinoTransportButton(
+    kind: CupertinoGlyphKind,
+    visualSize: Dp,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.84f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = 620f,
+        ),
+        label = "transport-press-${kind.name}",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(64.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        CupertinoGlyph(
+            kind = kind,
             modifier = Modifier.size(visualSize),
-            color = Color.White.copy(alpha = if (enabled) 1f else 0.28f),
+            color = Color.White,
         )
     }
 }
 
 @Composable
-private fun MeloXIOSVolumeControlV2(state: MeloXPlaybackUiState) {
+private fun MeloXVolumeControlV3(state: MeloXPlaybackUiState) {
+    var dragging by remember { mutableStateOf(false) }
+    var localVolume by remember { mutableFloatStateOf(state.volume) }
+    val thumbSize by animateDpAsState(
+        targetValue = if (dragging) 16.dp else 14.dp,
+        animationSpec = tween(120),
+        label = "volume-thumb-size",
+    )
+    val trackHeight by animateDpAsState(
+        targetValue = if (dragging) 4.dp else 3.dp,
+        animationSpec = tween(120),
+        label = "volume-track-height",
+    )
+
+    LaunchedEffect(state.volume, dragging) {
+        if (!dragging) localVolume = state.volume
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -431,22 +702,28 @@ private fun MeloXIOSVolumeControlV2(state: MeloXPlaybackUiState) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        MeloXGlyph(
-            glyph = MeloXGlyphKind.SpeakerLow,
-            modifier = Modifier.size(13.dp),
+        CupertinoGlyph(
+            kind = CupertinoGlyphKind.SpeakerLow,
+            modifier = Modifier.size(12.dp),
             color = Color.White.copy(alpha = 0.62f),
         )
 
         Slider(
-            value = state.volume,
-            onValueChange = state::changeVolume,
+            value = localVolume,
+            onValueChange = {
+                dragging = true
+                localVolume = it.coerceIn(0f, 1f)
+                state.changeVolume(localVolume)
+            },
+            onValueChangeFinished = { dragging = false },
             modifier = Modifier
                 .weight(1f)
                 .height(32.dp),
             thumb = {
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(thumbSize)
+                        .shadow(3.dp, CircleShape)
                         .clip(CircleShape)
                         .background(Color.White),
                 )
@@ -455,22 +732,22 @@ private fun MeloXIOSVolumeControlV2(state: MeloXPlaybackUiState) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(trackHeight)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.20f)),
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(state.volume.coerceIn(0f, 1f))
+                            .fillMaxWidth(localVolume)
                             .fillMaxHeight()
-                            .background(Color.White.copy(alpha = 0.78f)),
+                            .background(Color.White.copy(alpha = 0.82f)),
                     )
                 }
             },
         )
 
-        MeloXGlyph(
-            glyph = MeloXGlyphKind.SpeakerHigh,
+        CupertinoGlyph(
+            kind = CupertinoGlyphKind.SpeakerHigh,
             modifier = Modifier.size(15.dp),
             color = Color.White.copy(alpha = 0.62f),
         )
@@ -478,7 +755,7 @@ private fun MeloXIOSVolumeControlV2(state: MeloXPlaybackUiState) {
 }
 
 @Composable
-private fun MeloXIOSPageSelectorV2(
+private fun MeloXPageSelectorV3(
     state: MeloXPlaybackUiState,
     page: MeloXNowPlayingPage,
     onPageSelected: (MeloXNowPlayingPage) -> Unit,
@@ -491,23 +768,23 @@ private fun MeloXIOSPageSelectorV2(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MeloXPageIconButtonV2(
-            glyph = MeloXGlyphKind.Lyrics,
+        CupertinoPageButton(
+            kind = CupertinoGlyphKind.Lyrics,
             selected = page == MeloXNowPlayingPage.Lyrics,
             enabled = true,
             onClick = { onPageSelected(MeloXNowPlayingPage.Lyrics) },
         )
 
-        MeloXPageIconButtonV2(
-            glyph = MeloXGlyphKind.Floating,
+        CupertinoPageButton(
+            kind = CupertinoGlyphKind.PipEnter,
             selected = false,
             enabled = false,
             onClick = {},
         )
 
         Box {
-            MeloXPageIconButtonV2(
-                glyph = MeloXGlyphKind.Queue,
+            CupertinoPageButton(
+                kind = CupertinoGlyphKind.Queue,
                 selected = page == MeloXNowPlayingPage.Queue,
                 enabled = true,
                 onClick = { onPageSelected(MeloXNowPlayingPage.Queue) },
@@ -515,11 +792,23 @@ private fun MeloXIOSPageSelectorV2(
 
             if (
                 page != MeloXNowPlayingPage.Queue &&
-                (state.shuffleEnabled || state.repeatMode != Player.REPEAT_MODE_OFF)
+                (state.shuffleEnabled || state.repeatMode != 0)
             ) {
+                val badgeScale by animateFloatAsState(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium,
+                    ),
+                    label = "queue-badge-pop",
+                )
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
+                        .graphicsLayer {
+                            scaleX = badgeScale
+                            scaleY = badgeScale
+                        }
                         .size(15.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.82f)),
@@ -527,12 +816,12 @@ private fun MeloXIOSPageSelectorV2(
                 ) {
                     Text(
                         text = when {
-                            state.shuffleEnabled -> "↝"
-                            state.repeatMode == Player.REPEAT_MODE_ONE -> "1"
-                            else -> "↻"
+                            state.shuffleEnabled -> "S"
+                            state.repeatMode == 1 -> "1"
+                            else -> "R"
                         },
-                        color = Color.Black.copy(alpha = 0.74f),
-                        fontSize = 8.sp,
+                        color = Color.Black.copy(alpha = 0.72f),
+                        fontSize = 7.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -542,22 +831,56 @@ private fun MeloXIOSPageSelectorV2(
 }
 
 @Composable
-private fun MeloXPageIconButtonV2(
-    glyph: MeloXGlyphKind,
+private fun CupertinoPageButton(
+    kind: CupertinoGlyphKind,
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.86f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = 650f,
+        ),
+        label = "page-button-press-${kind.name}",
+    )
+    val selectionScale by animateFloatAsState(
+        targetValue = if (selected) 1.04f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "page-button-selected-${kind.name}",
+    )
+    val backgroundAlpha by animateFloatAsState(
+        targetValue = if (selected) 0.68f else 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "page-button-bg-${kind.name}",
+    )
+
     Box(
         modifier = Modifier
             .size(44.dp)
+            .graphicsLayer {
+                val s = pressScale * selectionScale
+                scaleX = s
+                scaleY = s
+            }
             .clip(CircleShape)
-            .background(if (selected) Color.White.copy(alpha = 0.68f) else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(Color.White.copy(alpha = backgroundAlpha))
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        MeloXGlyph(
-            glyph = glyph,
+        CupertinoGlyph(
+            kind = kind,
             modifier = Modifier.size(22.dp),
             color = when {
                 !enabled -> Color.White.copy(alpha = 0.26f)
@@ -568,7 +891,7 @@ private fun MeloXPageIconButtonV2(
     }
 }
 
-private enum class MeloXGlyphKind {
+private enum class CupertinoGlyphKind {
     Backward,
     Forward,
     Play,
@@ -576,147 +899,205 @@ private enum class MeloXGlyphKind {
     SpeakerLow,
     SpeakerHigh,
     Lyrics,
-    Floating,
+    PipEnter,
     Queue,
     Waveform,
 }
 
 @Composable
-private fun MeloXGlyph(
-    glyph: MeloXGlyphKind,
+private fun CupertinoGlyph(
+    kind: CupertinoGlyphKind,
     modifier: Modifier,
     color: Color,
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val stroke = (w.coerceAtMost(h) * 0.085f).coerceAtLeast(1.5f)
+        val min = size.minDimension
+        val stroke = (min * 0.085f).coerceAtLeast(1.35f)
 
-        when (glyph) {
-            MeloXGlyphKind.Backward,
-            MeloXGlyphKind.Forward -> {
-                val forward = glyph == MeloXGlyphKind.Forward
-                fun triangle(left: Float, right: Float) {
-                    val p = Path()
-                    if (forward) {
-                        p.moveTo(left, h * 0.16f)
-                        p.lineTo(right, h * 0.50f)
-                        p.lineTo(left, h * 0.84f)
-                    } else {
-                        p.moveTo(right, h * 0.16f)
-                        p.lineTo(left, h * 0.50f)
-                        p.lineTo(right, h * 0.84f)
-                    }
-                    p.close()
-                    drawPath(p, color)
-                }
-                triangle(w * 0.08f, w * 0.50f)
-                triangle(w * 0.44f, w * 0.92f)
-            }
-
-            MeloXGlyphKind.Play -> {
+        when (kind) {
+            CupertinoGlyphKind.Play -> {
                 val p = Path().apply {
-                    moveTo(w * 0.26f, h * 0.12f)
-                    lineTo(w * 0.82f, h * 0.50f)
-                    lineTo(w * 0.26f, h * 0.88f)
+                    moveTo(w * 0.28f, h * 0.13f)
+                    quadraticBezierTo(w * 0.22f, h * 0.10f, w * 0.22f, h * 0.22f)
+                    lineTo(w * 0.22f, h * 0.78f)
+                    quadraticBezierTo(w * 0.22f, h * 0.90f, w * 0.30f, h * 0.86f)
+                    lineTo(w * 0.82f, h * 0.56f)
+                    quadraticBezierTo(w * 0.91f, h * 0.50f, w * 0.82f, h * 0.44f)
                     close()
                 }
                 drawPath(p, color)
             }
 
-            MeloXGlyphKind.Pause -> {
+            CupertinoGlyphKind.Pause -> {
                 drawRoundRect(
                     color = color,
-                    topLeft = Offset(w * 0.22f, h * 0.10f),
-                    size = Size(w * 0.20f, h * 0.80f),
-                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+                    topLeft = Offset(w * 0.24f, h * 0.10f),
+                    size = Size(w * 0.18f, h * 0.80f),
+                    cornerRadius = CornerRadius(w * 0.045f),
                 )
                 drawRoundRect(
                     color = color,
                     topLeft = Offset(w * 0.58f, h * 0.10f),
-                    size = Size(w * 0.20f, h * 0.80f),
-                    cornerRadius = CornerRadius(w * 0.04f, w * 0.04f),
+                    size = Size(w * 0.18f, h * 0.80f),
+                    cornerRadius = CornerRadius(w * 0.045f),
                 )
             }
 
-            MeloXGlyphKind.SpeakerLow,
-            MeloXGlyphKind.SpeakerHigh -> {
+            CupertinoGlyphKind.Backward,
+            CupertinoGlyphKind.Forward -> {
+                val forward = kind == CupertinoGlyphKind.Forward
+                fun triangle(x0: Float, x1: Float) {
+                    val p = Path()
+                    if (forward) {
+                        p.moveTo(x0, h * 0.17f)
+                        p.lineTo(x1, h * 0.50f)
+                        p.lineTo(x0, h * 0.83f)
+                    } else {
+                        p.moveTo(x1, h * 0.17f)
+                        p.lineTo(x0, h * 0.50f)
+                        p.lineTo(x1, h * 0.83f)
+                    }
+                    p.close()
+                    drawPath(p, color)
+                }
+                triangle(w * 0.10f, w * 0.50f)
+                triangle(w * 0.45f, w * 0.88f)
+            }
+
+            CupertinoGlyphKind.SpeakerLow,
+            CupertinoGlyphKind.SpeakerHigh -> {
                 val speaker = Path().apply {
-                    moveTo(w * 0.08f, h * 0.40f)
-                    lineTo(w * 0.30f, h * 0.40f)
-                    lineTo(w * 0.54f, h * 0.20f)
-                    lineTo(w * 0.54f, h * 0.80f)
-                    lineTo(w * 0.30f, h * 0.60f)
-                    lineTo(w * 0.08f, h * 0.60f)
+                    moveTo(w * 0.08f, h * 0.41f)
+                    lineTo(w * 0.29f, h * 0.41f)
+                    lineTo(w * 0.54f, h * 0.22f)
+                    quadraticBezierTo(w * 0.58f, h * 0.19f, w * 0.58f, h * 0.27f)
+                    lineTo(w * 0.58f, h * 0.73f)
+                    quadraticBezierTo(w * 0.58f, h * 0.81f, w * 0.54f, h * 0.78f)
+                    lineTo(w * 0.29f, h * 0.59f)
+                    lineTo(w * 0.08f, h * 0.59f)
                     close()
                 }
                 drawPath(speaker, color)
 
-                if (glyph == MeloXGlyphKind.SpeakerHigh) {
+                if (kind == CupertinoGlyphKind.SpeakerHigh) {
                     drawArc(
                         color = color,
-                        startAngle = -52f,
-                        sweepAngle = 104f,
+                        startAngle = -46f,
+                        sweepAngle = 92f,
                         useCenter = false,
-                        topLeft = Offset(w * 0.40f, h * 0.29f),
-                        size = Size(w * 0.34f, h * 0.42f),
+                        topLeft = Offset(w * 0.45f, h * 0.30f),
+                        size = Size(w * 0.30f, h * 0.40f),
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                     drawArc(
                         color = color,
-                        startAngle = -52f,
-                        sweepAngle = 104f,
+                        startAngle = -48f,
+                        sweepAngle = 96f,
                         useCenter = false,
-                        topLeft = Offset(w * 0.39f, h * 0.14f),
-                        size = Size(w * 0.56f, h * 0.72f),
+                        topLeft = Offset(w * 0.43f, h * 0.14f),
+                        size = Size(w * 0.52f, h * 0.72f),
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                 }
             }
 
-            MeloXGlyphKind.Lyrics -> {
+            CupertinoGlyphKind.Lyrics -> {
                 drawRoundRect(
                     color = color,
-                    topLeft = Offset(w * 0.08f, h * 0.10f),
-                    size = Size(w * 0.84f, h * 0.68f),
-                    cornerRadius = CornerRadius(w * 0.18f, w * 0.18f),
+                    topLeft = Offset(w * 0.07f, h * 0.09f),
+                    size = Size(w * 0.86f, h * 0.70f),
+                    cornerRadius = CornerRadius(w * 0.18f),
                     style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )
                 val tail = Path().apply {
-                    moveTo(w * 0.62f, h * 0.76f)
-                    lineTo(w * 0.52f, h * 0.92f)
-                    lineTo(w * 0.72f, h * 0.78f)
+                    moveTo(w * 0.61f, h * 0.78f)
+                    lineTo(w * 0.52f, h * 0.93f)
+                    lineTo(w * 0.72f, h * 0.79f)
                 }
                 drawPath(tail, color, style = Stroke(width = stroke, cap = StrokeCap.Round))
-                drawLine(color, Offset(w * 0.31f, h * 0.35f), Offset(w * 0.31f, h * 0.49f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.58f, h * 0.35f), Offset(w * 0.58f, h * 0.49f), stroke, StrokeCap.Round)
-            }
 
-            MeloXGlyphKind.Floating -> {
                 drawRoundRect(
                     color = color,
-                    topLeft = Offset(w * 0.14f, h * 0.18f),
-                    size = Size(w * 0.72f, h * 0.58f),
-                    cornerRadius = CornerRadius(w * 0.10f, w * 0.10f),
-                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                    topLeft = Offset(w * 0.28f, h * 0.31f),
+                    size = Size(w * 0.10f, h * 0.18f),
+                    cornerRadius = CornerRadius(w * 0.03f),
                 )
-                drawLine(color, Offset(w * 0.31f, h * 0.40f), Offset(w * 0.69f, h * 0.40f), stroke, StrokeCap.Round)
-                drawLine(color, Offset(w * 0.31f, h * 0.55f), Offset(w * 0.58f, h * 0.55f), stroke, StrokeCap.Round)
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.53f, h * 0.31f),
+                    size = Size(w * 0.10f, h * 0.18f),
+                    cornerRadius = CornerRadius(w * 0.03f),
+                )
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.28f, h * 0.49f),
+                    end = Offset(w * 0.23f, h * 0.58f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.53f, h * 0.49f),
+                    end = Offset(w * 0.48f, h * 0.58f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
             }
 
-            MeloXGlyphKind.Queue -> {
-                val ys = listOf(0.28f, 0.50f, 0.72f)
-                ys.forEach { y ->
-                    drawCircle(color, radius = stroke * 0.72f, center = Offset(w * 0.18f, h * y))
-                    drawLine(color, Offset(w * 0.34f, h * y), Offset(w * 0.86f, h * y), stroke, StrokeCap.Round)
+            CupertinoGlyphKind.PipEnter -> {
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.10f, h * 0.12f),
+                    size = Size(w * 0.80f, h * 0.68f),
+                    cornerRadius = CornerRadius(w * 0.10f),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.48f, h * 0.51f),
+                    size = Size(w * 0.38f, h * 0.34f),
+                    cornerRadius = CornerRadius(w * 0.07f),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.29f, h * 0.31f),
+                    end = Offset(w * 0.47f, h * 0.49f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
+                val arrow = Path().apply {
+                    moveTo(w * 0.39f, h * 0.48f)
+                    lineTo(w * 0.49f, h * 0.49f)
+                    lineTo(w * 0.48f, h * 0.39f)
+                }
+                drawPath(arrow, color, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            }
+
+            CupertinoGlyphKind.Queue -> {
+                listOf(0.27f, 0.50f, 0.73f).forEach { y ->
+                    drawCircle(
+                        color = color,
+                        radius = stroke * 0.72f,
+                        center = Offset(w * 0.17f, h * y),
+                    )
+                    drawLine(
+                        color = color,
+                        start = Offset(w * 0.33f, h * y),
+                        end = Offset(w * 0.88f, h * y),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
                 }
             }
 
-            MeloXGlyphKind.Waveform -> {
+            CupertinoGlyphKind.Waveform -> {
                 val xs = listOf(0.18f, 0.38f, 0.60f, 0.82f)
-                val heights = listOf(0.40f, 0.72f, 0.58f, 0.34f)
-                xs.zip(heights).forEach { (x, barHeight) ->
-                    val half = h * barHeight * 0.5f
+                val heights = listOf(0.36f, 0.72f, 0.55f, 0.30f)
+                xs.zip(heights).forEach { (x, fraction) ->
+                    val half = h * fraction * 0.5f
                     drawLine(
                         color = color,
                         start = Offset(w * x, h * 0.5f - half),
@@ -730,9 +1111,7 @@ private fun MeloXGlyph(
     }
 }
 
-private fun formatDurationV2(milliseconds: Long): String {
+private fun formatDurationV3(milliseconds: Long): String {
     val seconds = milliseconds.coerceAtLeast(0L) / 1_000L
-    val minutes = seconds / 60L
-    val remainder = seconds % 60L
-    return "%d:%02d".format(minutes, remainder)
+    return "%d:%02d".format(seconds / 60L, seconds % 60L)
 }
