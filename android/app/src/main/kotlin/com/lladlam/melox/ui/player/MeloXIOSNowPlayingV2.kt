@@ -52,7 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -62,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,7 +69,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.delay
 import kotlin.math.roundToLong
 
 private const val PLAYER_CONTROLS_HEIGHT = 279
@@ -197,7 +196,11 @@ private fun MeloXAnimatedBackdrop(artworkUrl: String?) {
                         ),
                 )
             } else {
-                Box(Modifier.fillMaxSize().background(Color(0xFF171717)))
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF171717)),
+                )
             }
         }
 
@@ -470,10 +473,13 @@ private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
                 .fillMaxWidth()
                 .height(26.dp),
         ) {
+            val shownPosition = if (scrubbing) {
+                (state.durationMs * localProgress).roundToLong()
+            } else {
+                state.positionMs
+            }
             Text(
-                text = formatDurationV3(
-                    if (scrubbing) (state.durationMs * localProgress).roundToLong() else state.positionMs,
-                ),
+                text = formatDurationV3(shownPosition),
                 modifier = Modifier.align(Alignment.CenterStart),
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.sp,
@@ -482,11 +488,6 @@ private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
 
             MeloXQualityChipV3(modifier = Modifier.align(Alignment.Center))
 
-            val shownPosition = if (scrubbing) {
-                (state.durationMs * localProgress).roundToLong()
-            } else {
-                state.positionMs
-            }
             Text(
                 text = "−${formatDurationV3((state.durationMs - shownPosition).coerceAtLeast(0L))}",
                 modifier = Modifier.align(Alignment.CenterEnd),
@@ -571,9 +572,7 @@ private fun MeloXTransportControlsV3(state: MeloXPlaybackUiState) {
             },
         )
         Spacer(Modifier.weight(1f))
-
         CupertinoPlayPauseButton(state)
-
         Spacer(Modifier.weight(1f))
         CupertinoTransportButton(
             kind = CupertinoGlyphKind.Forward,
@@ -794,21 +793,9 @@ private fun MeloXPageSelectorV3(
                 page != MeloXNowPlayingPage.Queue &&
                 (state.shuffleEnabled || state.repeatMode != 0)
             ) {
-                val badgeScale by animateFloatAsState(
-                    targetValue = 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium,
-                    ),
-                    label = "queue-badge-pop",
-                )
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .graphicsLayer {
-                            scaleX = badgeScale
-                            scaleY = badgeScale
-                        }
                         .size(15.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.82f)),
