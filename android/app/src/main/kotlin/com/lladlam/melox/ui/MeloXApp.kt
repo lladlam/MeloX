@@ -32,6 +32,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.ui.player.MeloXMiniPlayer
+import com.lladlam.melox.ui.player.MeloXNowPlaying
+import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
 
 enum class AppTab(val title: String) {
@@ -44,28 +47,45 @@ enum class AppTab(val title: String) {
 @Composable
 fun MeloXApp() {
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
+    var showNowPlaying by remember { mutableStateOf(false) }
+    val playbackState = rememberMeloXPlaybackUiState()
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            MeloXTabBar(
-                selectedTab = selectedTab,
-                onSelect = { selectedTab = it },
-            )
-        },
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .statusBarsPadding(),
-        ) {
-            when (selectedTab) {
-                AppTab.Search -> SearchScreen()
-                else -> PlaceholderScreen(tab = selectedTab)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                Column {
+                    MeloXMiniPlayer(
+                        state = playbackState,
+                        onExpand = { showNowPlaying = true },
+                    )
+                    MeloXTabBar(
+                        selectedTab = selectedTab,
+                        onSelect = { selectedTab = it },
+                    )
+                }
+            },
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .statusBarsPadding(),
+            ) {
+                when (selectedTab) {
+                    AppTab.Search -> SearchScreen()
+                    else -> PlaceholderScreen(tab = selectedTab)
+                }
             }
+        }
+
+        if (showNowPlaying && playbackState.hasMedia) {
+            MeloXNowPlaying(
+                state = playbackState,
+                onDismiss = { showNowPlaying = false },
+            )
         }
     }
 }
