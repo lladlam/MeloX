@@ -60,17 +60,17 @@ object NeteaseLyricParser {
 
     fun parseLrc(source: String): List<LyricLine> {
         val result = mutableListOf<LyricLine>()
-        source.lineSequence().forEach { raw ->
+        for (raw in source.lineSequence()) {
             val matches = lrcTimestamp.findAll(raw).toList()
-            if (matches.isEmpty()) return@forEach
+            if (matches.isEmpty()) continue
             val text = raw.substring(matches.last().range.last + 1).trim()
-            if (text.isBlank()) return@forEach
+            if (text.isBlank()) continue
 
-            matches.forEach { match ->
-                val minutes = match.groupValues[1].toLongOrNull() ?: return@forEach
+            for (match in matches) {
+                val minutes = match.groupValues[1].toLongOrNull() ?: continue
                 val seconds = match.groupValues[2]
                     .replace(':', '.')
-                    .toDoubleOrNull() ?: return@forEach
+                    .toDoubleOrNull() ?: continue
                 result += LyricLine(
                     timeMs = ((minutes * 60.0 + seconds) * 1_000.0).toLong(),
                     text = text,
@@ -82,18 +82,18 @@ object NeteaseLyricParser {
 
     fun parseYrc(source: String): List<LyricLine> {
         val result = mutableListOf<LyricLine>()
-        source.lineSequence().forEach { raw ->
+        for (raw in source.lineSequence()) {
             val line = raw.trim()
-            if (!line.startsWith('[')) return@forEach
+            if (!line.startsWith('[')) continue
             val close = line.indexOf(']')
-            if (close <= 1) return@forEach
+            if (close <= 1) continue
 
             val timing = line.substring(1, close).split(',')
-            val startMs = timing.getOrNull(0)?.toLongOrNull() ?: return@forEach
+            val startMs = timing.getOrNull(0)?.toLongOrNull() ?: continue
             val durationMs = timing.getOrNull(1)?.toLongOrNull()
             val content = line.substring(close + 1)
             val text = content.replace(yrcSyllableTiming, "").trim()
-            if (text.isBlank()) return@forEach
+            if (text.isBlank()) continue
 
             result += LyricLine(
                 timeMs = startMs,
