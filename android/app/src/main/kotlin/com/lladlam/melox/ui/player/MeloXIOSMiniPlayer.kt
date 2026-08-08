@@ -1,7 +1,7 @@
 package com.lladlam.melox.ui.player
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,9 +49,7 @@ fun MeloXIOSMiniPlayer(
             .pointerInput(state.mediaId) {
                 detectHorizontalDragGestures(
                     onDragStart = { accumulatedDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount ->
-                        accumulatedDrag += dragAmount
-                    },
+                    onHorizontalDrag = { _, dragAmount -> accumulatedDrag += dragAmount },
                     onDragEnd = {
                         when {
                             accumulatedDrag <= -48f -> state.next()
@@ -60,17 +60,17 @@ fun MeloXIOSMiniPlayer(
                     onDragCancel = { accumulatedDrag = 0f },
                 )
             },
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
         border = BorderStroke(
-            0.7.dp,
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+            0.8.dp,
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
         ),
-        tonalElevation = 1.dp,
-        shadowElevation = 3.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = 5.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -85,7 +85,7 @@ fun MeloXIOSMiniPlayer(
                     url = state.artworkUrl,
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(6.dp)),
+                        .clip(RoundedCornerShape(7.dp)),
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -95,24 +95,25 @@ fun MeloXIOSMiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = state.artist,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
                     )
                 }
             }
 
-            MiniControlButton(
-                label = if (state.isPlaying) "Ⅱ" else "▶",
+            MiniVectorButton(
+                kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
+                enabled = true,
                 onClick = state::togglePlayPause,
             )
-
-            MiniControlButton(
-                label = "▶▶",
+            MiniVectorButton(
+                kind = MiniGlyph.Forward,
                 enabled = state.hasNext || state.repeatMode != 0,
                 onClick = state::next,
             )
@@ -120,27 +121,64 @@ fun MeloXIOSMiniPlayer(
     }
 }
 
+private enum class MiniGlyph { Play, Pause, Forward }
+
 @Composable
-private fun MiniControlButton(
-    label: String,
-    enabled: Boolean = true,
+private fun MiniVectorButton(
+    kind: MiniGlyph,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.94f else 0.26f)
     Box(
         modifier = Modifier
             .size(36.dp)
             .clip(CircleShape)
-            .background(Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            fontSize = if (label == "▶▶") 16.sp else 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) 0.88f else 0.28f,
-            ),
-        )
+        Canvas(Modifier.size(if (kind == MiniGlyph.Forward) 25.dp else 23.dp)) {
+            when (kind) {
+                MiniGlyph.Play -> {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.24f, size.height * 0.14f)
+                        lineTo(size.width * 0.82f, size.height * 0.50f)
+                        lineTo(size.width * 0.24f, size.height * 0.86f)
+                        close()
+                    }
+                    drawPath(path, color)
+                }
+                MiniGlyph.Pause -> {
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(size.width * 0.24f, size.height * 0.14f),
+                        size = androidx.compose.ui.geometry.Size(size.width * 0.17f, size.height * 0.72f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.035f),
+                    )
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(size.width * 0.59f, size.height * 0.14f),
+                        size = androidx.compose.ui.geometry.Size(size.width * 0.17f, size.height * 0.72f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.035f),
+                    )
+                }
+                MiniGlyph.Forward -> {
+                    val first = Path().apply {
+                        moveTo(size.width * 0.06f, size.height * 0.16f)
+                        lineTo(size.width * 0.49f, size.height * 0.50f)
+                        lineTo(size.width * 0.06f, size.height * 0.84f)
+                        close()
+                    }
+                    val second = Path().apply {
+                        moveTo(size.width * 0.45f, size.height * 0.16f)
+                        lineTo(size.width * 0.88f, size.height * 0.50f)
+                        lineTo(size.width * 0.45f, size.height * 0.84f)
+                        close()
+                    }
+                    drawPath(first, color)
+                    drawPath(second, color)
+                }
+            }
+        }
     }
 }
