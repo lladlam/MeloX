@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.ui.search.SearchScreen
 
 enum class AppTab(val title: String) {
     Home("首页"),
@@ -61,7 +62,10 @@ fun MeloXApp() {
                 .padding(innerPadding)
                 .statusBarsPadding(),
         ) {
-            PlaceholderScreen(tab = selectedTab)
+            when (selectedTab) {
+                AppTab.Search -> SearchScreen()
+                else -> PlaceholderScreen(tab = selectedTab)
+            }
         }
     }
 }
@@ -85,7 +89,7 @@ private fun PlaceholderScreen(tab: AppTab) {
                 AppTab.Home -> "Android 迁移骨架已运行。下一步接入 MeloX 首页数据与推荐卡片。"
                 AppTab.Explore -> "这里将逐页移植 ExploreView 与音乐发现内容。"
                 AppTab.Library -> "这里将接入账号音乐库、收藏、下载与云盘。"
-                AppTab.Search -> "这里将迁移歌曲、专辑、歌手、歌单与播客搜索。"
+                AppTab.Search -> ""
             },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
