@@ -35,6 +35,7 @@ class MeloXPlaybackService : MediaSessionService() {
 
         val exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
             .apply {
                 setAudioAttributes(
