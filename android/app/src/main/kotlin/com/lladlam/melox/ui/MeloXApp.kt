@@ -2,8 +2,8 @@ package com.lladlam.melox.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -30,7 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,10 +48,13 @@ import com.lladlam.melox.ui.search.SearchScreen
 
 enum class AppTab(val title: String) {
     Home("首页"),
-    Explore("音乐"),
+    Explore("发现"),
     Library("音乐库"),
+    Settings("设置"),
     Search("搜索"),
 }
+
+private val MeloXAccent = Color(0xFFFF3147)
 
 @Composable
 fun MeloXApp(
@@ -70,27 +80,30 @@ fun MeloXApp(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
-                Column {
-                    MeloXIOSMiniPlayer(
-                        state = playbackState,
-                        onExpand = { showNowPlaying = true },
-                    )
-                    MeloXTabBar(
-                        selectedTab = selectedTab,
-                        onSelect = { selectedTab = it },
-                    )
-                }
+                MeloXBottomChrome(
+                    selectedTab = selectedTab,
+                    onSelect = { selectedTab = it },
+                    hasMedia = playbackState.hasMedia,
+                    miniPlayer = {
+                        MeloXIOSMiniPlayer(
+                            state = playbackState,
+                            onExpand = { showNowPlaying = true },
+                        )
+                    },
+                )
             },
         ) { innerPadding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .statusBarsPadding(),
+                    .padding(innerPadding),
             ) {
                 when (selectedTab) {
                     AppTab.Search -> SearchScreen()
-                    else -> PlaceholderScreen(tab = selectedTab)
+                    AppTab.Home -> MeloXSectionShell("首页", "每日推荐与个性化内容将按 iOS MeloX 结构接入。")
+                    AppTab.Explore -> MeloXSectionShell("发现", "推荐、排行榜、精品与分类内容正在迁移。")
+                    AppTab.Library -> MeloXSectionShell("音乐库", "歌曲、歌单与最近播放将在这里接入。")
+                    AppTab.Settings -> MeloXSectionShell("设置", "播放器、歌词、音质与账号设置将按 iOS 版迁移。")
                 }
             }
         }
@@ -105,74 +118,112 @@ fun MeloXApp(
 }
 
 @Composable
-private fun PlaceholderScreen(tab: AppTab) {
+private fun MeloXSectionShell(
+    title: String,
+    subtitle: String,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 22.dp, vertical = 14.dp),
+            .padding(horizontal = 28.dp, vertical = 48.dp),
     ) {
         Text(
-            text = tab.title,
-            style = MaterialTheme.typography.headlineLarge,
+            text = title,
+            fontSize = 36.sp,
+            lineHeight = 40.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = (-0.5).sp,
+            color = MaterialTheme.colorScheme.onBackground,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(20.dp))
         Text(
-            text = when (tab) {
-                AppTab.Home -> "Android 迁移骨架已运行。下一步接入 MeloX 首页数据与推荐卡片。"
-                AppTab.Explore -> "这里将逐页移植 ExploreView 与音乐发现内容。"
-                AppTab.Library -> "这里将接入账号音乐库、收藏、下载与云盘。"
-                AppTab.Search -> ""
-            },
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+            text = subtitle,
+            fontSize = 16.sp,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.48f),
         )
     }
 }
 
 @Composable
-private fun MeloXTabBar(
+private fun MeloXBottomChrome(
     selectedTab: AppTab,
     onSelect: (AppTab) -> Unit,
+    hasMedia: Boolean,
+    miniPlayer: @Composable () -> Unit,
 ) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
+            .padding(bottom = 5.dp),
     ) {
-        MeloXGlassSurface {
-            Row(
+        if (hasMedia) miniPlayer()
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
+                    .weight(1f)
+                    .height(66.dp),
+                shape = RoundedCornerShape(34.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+                border = BorderStroke(
+                    0.8.dp,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                ),
+                shadowElevation = 7.dp,
+                tonalElevation = 0.dp,
             ) {
-                AppTab.entries.forEach { tab ->
-                    val selected = tab == selectedTab
-                    Text(
-                        text = tab.title,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(
-                                if (selected) {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f)
-                                } else {
-                                    Color.Transparent
-                                },
-                            )
-                            .clickable { onSelect(tab) }
-                            .padding(horizontal = 14.dp, vertical = 9.dp),
-                        color = if (selected) {
-                            MaterialTheme.colorScheme.onSurface
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 5.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val primaryTabs = listOf(
+                        AppTab.Home to RootGlyph.Home,
+                        AppTab.Explore to RootGlyph.Explore,
+                        AppTab.Library to RootGlyph.Library,
+                        AppTab.Settings to RootGlyph.Settings,
+                    )
+                    primaryTabs.forEach { (tab, glyph) ->
+                        RootTabButton(
+                            tab = tab,
+                            glyph = glyph,
+                            selected = selectedTab == tab,
+                            onClick = { onSelect(tab) },
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier
+                    .size(66.dp)
+                    .clickable { onSelect(AppTab.Search) },
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+                border = BorderStroke(
+                    0.8.dp,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                ),
+                shadowElevation = 7.dp,
+                tonalElevation = 0.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    RootGlyphIcon(
+                        glyph = RootGlyph.Search,
+                        modifier = Modifier.size(31.dp),
+                        color = if (selectedTab == AppTab.Search) {
+                            MeloXAccent
                         } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                            MaterialTheme.colorScheme.onSurface
                         },
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        fontSize = 13.sp,
                     )
                 }
             }
@@ -181,21 +232,127 @@ private fun MeloXTabBar(
 }
 
 @Composable
-private fun MeloXGlassSurface(content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(28.dp)
-    Box(
+private fun RootTabButton(
+    tab: AppTab,
+    glyph: RootGlyph,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val foreground = if (selected) MeloXAccent else MaterialTheme.colorScheme.onSurface
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.86f))
-            .border(
-                BorderStroke(
-                    0.7.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                ),
-                shape,
-            ),
+            .clip(RoundedCornerShape(28.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f)
+                else Color.Transparent,
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        content()
+        RootGlyphIcon(glyph = glyph, modifier = Modifier.size(26.dp), color = foreground)
+        Text(
+            text = tab.title,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = foreground,
+        )
+    }
+}
+
+private enum class RootGlyph { Home, Explore, Library, Settings, Search }
+
+@Composable
+private fun RootGlyphIcon(
+    glyph: RootGlyph,
+    modifier: Modifier,
+    color: Color,
+) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val stroke = size.minDimension * 0.115f
+
+        when (glyph) {
+            RootGlyph.Home -> {
+                val roof = Path().apply {
+                    moveTo(w * 0.10f, h * 0.48f)
+                    lineTo(w * 0.50f, h * 0.14f)
+                    lineTo(w * 0.90f, h * 0.48f)
+                }
+                drawPath(roof, color, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(w * 0.24f, h * 0.43f),
+                    size = Size(w * 0.52f, h * 0.43f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.05f),
+                    style = Stroke(width = stroke),
+                )
+            }
+            RootGlyph.Explore -> {
+                drawCircle(color, radius = w * 0.35f, style = Stroke(width = stroke))
+                val needle = Path().apply {
+                    moveTo(w * 0.38f, h * 0.62f)
+                    lineTo(w * 0.57f, h * 0.36f)
+                    lineTo(w * 0.63f, h * 0.55f)
+                    close()
+                }
+                drawPath(needle, color)
+            }
+            RootGlyph.Library -> {
+                val p = Path().apply {
+                    moveTo(w * 0.26f, h * 0.22f)
+                    lineTo(w * 0.26f, h * 0.72f)
+                    cubicTo(w * 0.26f, h * 0.83f, w * 0.10f, h * 0.84f, w * 0.10f, h * 0.70f)
+                    cubicTo(w * 0.10f, h * 0.57f, w * 0.29f, h * 0.55f, w * 0.37f, h * 0.62f)
+                    lineTo(w * 0.37f, h * 0.28f)
+                    lineTo(w * 0.83f, h * 0.18f)
+                    lineTo(w * 0.83f, h * 0.61f)
+                    cubicTo(w * 0.83f, h * 0.74f, w * 0.66f, h * 0.77f, w * 0.61f, h * 0.66f)
+                }
+                drawPath(p, color, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            }
+            RootGlyph.Settings -> {
+                drawCircle(color, radius = w * 0.33f, style = Stroke(width = stroke))
+                drawCircle(color, radius = w * 0.095f)
+                repeat(8) { index ->
+                    val angle = Math.toRadians((index * 45.0) - 90.0)
+                    val cx = w / 2f
+                    val cy = h / 2f
+                    val r1 = w * 0.37f
+                    val r2 = w * 0.47f
+                    drawLine(
+                        color = color,
+                        start = Offset(
+                            cx + kotlin.math.cos(angle).toFloat() * r1,
+                            cy + kotlin.math.sin(angle).toFloat() * r1,
+                        ),
+                        end = Offset(
+                            cx + kotlin.math.cos(angle).toFloat() * r2,
+                            cy + kotlin.math.sin(angle).toFloat() * r2,
+                        ),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+            RootGlyph.Search -> {
+                drawCircle(
+                    color = color,
+                    radius = w * 0.29f,
+                    center = Offset(w * 0.43f, h * 0.40f),
+                    style = Stroke(width = stroke),
+                )
+                drawLine(
+                    color = color,
+                    start = Offset(w * 0.64f, h * 0.62f),
+                    end = Offset(w * 0.86f, h * 0.84f),
+                    strokeWidth = stroke,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
     }
 }
