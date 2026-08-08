@@ -1,8 +1,11 @@
 package com.lladlam.melox.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -35,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -47,7 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.lladlam.melox.core.account.rememberNeteaseSessionStore
 import com.lladlam.melox.ui.account.NeteaseLoginScreen
 import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
-import com.lladlam.melox.ui.player.MeloXPlayerMorphOverlay
+import com.lladlam.melox.ui.player.MeloXIOSNowPlayingSharedHost
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
 import com.lladlam.melox.ui.settings.SettingsScreen
@@ -62,6 +64,7 @@ enum class AppTab(val title: String) {
 
 private val MeloXAccent = Color(0xFFFF3147)
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MeloXApp(
     openNowPlayingRequest: Int = 0,
@@ -69,13 +72,8 @@ fun MeloXApp(
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
     var showNowPlaying by remember { mutableStateOf(false) }
     var showNeteaseLogin by remember { mutableStateOf(false) }
-    var miniContainerBounds by remember { mutableStateOf<Rect?>(null) }
-    var miniArtworkBounds by remember { mutableStateOf<Rect?>(null) }
-
     val playbackState = rememberMeloXPlaybackUiState()
     val neteaseSession = rememberNeteaseSessionStore()
-    val playerProgress = remember { Animatable(0f) }
-    val morphProgress = playerProgress.value
 
     LaunchedEffect(openNowPlayingRequest, playbackState.hasMedia) {
         if (openNowPlayingRequest > 0 && playbackState.hasMedia) {
@@ -89,89 +87,83 @@ fun MeloXApp(
         }
     }
 
-    // One animation value owns the entire root player transition. Animatable
-    // continues from the current value and velocity when this target changes,
-    // so a close interrupted by another open (or vice versa) never restarts.
-    LaunchedEffect(showNowPlaying, playbackState.hasMedia) {
-        val target = if (showNowPlaying && playbackState.hasMedia) 1f else 0f
-        playerProgress.animateTo(
-            targetValue = target,
-            animationSpec = spring(
-                dampingRatio = 1.0f,
-                stiffness = 340f,
-                visibilityThreshold = 0.001f,
-            ),
-        )
-    }
-
-    BackHandler(
-        enabled = (showNowPlaying || morphProgress > 0.02f) && !showNeteaseLogin,
-    ) {
+    BackHandler(enabled = showNowPlaying && !showNeteaseLogin) {
         showNowPlaying = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // IMPORTANT: the app page is never replaced by AnimatedContent during
-        // the player morph. It stays mounted underneath from start to finish.
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = MaterialTheme.colorScheme.background,
-            bottomBar = {
-                MeloXBottomChrome(
-                    selectedTab = selectedTab,
-                    onSelect = { selectedTab = it },
-                    hasMedia = playbackState.hasMedia,
-                    miniPlayer = {
-                        MeloXIOSMiniPlayer(
-                            state = playbackState,
-                            onExpand = { showNowPlaying = true },
-                            morphProgress = morphProgress,
-                            onContainerBoundsChanged = { miniContainerBounds = it },
-                            onArtworkBoundsChanged = { miniArtworkBounds = it },
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            val sharedScope = this
+            val fullPlayerVisible = showNowPlaying && playbackState.hasMedia
+
+            // The app page stays mounted for the entire player transition.
+            // Only the mini-player accessory exits while the full player enters.
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                containerColor = MaterialTheme.colorScheme.background,
+                bottomBar = {
+                    MeloXBottomChrome(
+                        selectedTab = selectedTab,
+                        onSelect = { selectedTab = it },
+                        hasMedia = playbackState.hasMedia,
+                        miniPlayer = {
+                            AnimatedVisibility(
+                                visible = !fullPlayerVisible,
+                                enter = EnterTransition.None,
+                                exit = ExitTransition.None,
+                            ) {
+                                MeloXIOSMiniPlayer(
+                                    state = playbackState,
+                                    onExpand = { showNowPlaying = true },
+                                    sharedTransitionScope = sharedScope,
+                                    animatedVisibilityScope = this,
+                                )
+                            }
+                        },
+                    )
+                },
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+                ) {
+                    when (selectedTab) {
+                        AppTab.Search -> SearchScreen()
+                        AppTab.Home -> MeloXSectionShell(
+                            "首页",
+                            "每日推荐与个性化内容将按 iOS MeloX 结构接入。",
                         )
-                    },
-                )
-            },
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            ) {
-                when (selectedTab) {
-                    AppTab.Search -> SearchScreen()
-                    AppTab.Home -> MeloXSectionShell(
-                        "首页",
-                        "每日推荐与个性化内容将按 iOS MeloX 结构接入。",
-                    )
-                    AppTab.Explore -> MeloXSectionShell(
-                        "发现",
-                        "推荐、排行榜、精品与分类内容正在迁移。",
-                    )
-                    AppTab.Library -> MeloXSectionShell(
-                        "音乐库",
-                        "歌曲、歌单与最近播放将在这里接入。",
-                    )
-                    AppTab.Settings -> SettingsScreen(
-                        session = neteaseSession,
-                        onLogin = { showNeteaseLogin = true },
-                    )
+                        AppTab.Explore -> MeloXSectionShell(
+                            "发现",
+                            "推荐、排行榜、精品与分类内容正在迁移。",
+                        )
+                        AppTab.Library -> MeloXSectionShell(
+                            "音乐库",
+                            "歌曲、歌单与最近播放将在这里接入。",
+                        )
+                        AppTab.Settings -> SettingsScreen(
+                            session = neteaseSession,
+                            onLogin = { showNeteaseLogin = true },
+                        )
+                    }
                 }
             }
-        }
 
-        // The overlay remains mounted while progress is travelling in either
-        // direction. At zero it disappears and the measured mini player beneath
-        // is already in exactly the same place.
-        if (playbackState.hasMedia && (showNowPlaying || morphProgress > 0.0005f)) {
-            MeloXPlayerMorphOverlay(
-                state = playbackState,
-                progress = morphProgress,
-                sourceContainerBounds = miniContainerBounds,
-                sourceArtworkBounds = miniArtworkBounds,
-                onDismiss = { showNowPlaying = false },
-            )
+            AnimatedVisibility(
+                visible = fullPlayerVisible,
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                MeloXIOSNowPlayingSharedHost(
+                    state = playbackState,
+                    onDismiss = { showNowPlaying = false },
+                    sharedTransitionScope = sharedScope,
+                    animatedVisibilityScope = this,
+                )
+            }
         }
 
         if (showNeteaseLogin) {
