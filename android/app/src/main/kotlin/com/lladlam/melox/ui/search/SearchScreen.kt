@@ -43,6 +43,7 @@ fun SearchScreen() {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchSong>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
+    var resolvingSongId by remember { mutableStateOf<Long?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun submitSearch() {
@@ -56,6 +57,27 @@ fun SearchScreen() {
                 .onSuccess { results = it }
                 .onFailure { errorMessage = it.message ?: "搜索失败" }
             isLoading = false
+        }
+    }
+
+    fun playSong(song: SearchSong) {
+        if (resolvingSongId != null) return
+
+        scope.launch {
+            resolvingSongId = song.id
+            errorMessage = null
+            runCatching { client.playbackUrl(song.id) }
+                .onSuccess { playbackUrl ->
+                    PlaybackCommands.playSong(
+                        context = context,
+                        song = song,
+                        playbackUrl = playbackUrl,
+                    )
+                }
+                .onFailure {
+                    errorMessage = it.message ?: "无法获取歌曲音源"
+                }
+            resolvingSongId = null
         }
     }
 
@@ -95,6 +117,15 @@ fun SearchScreen() {
 
         Spacer(Modifier.height(12.dp))
 
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage.orEmpty(),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
         when {
             isLoading -> {
                 Row(
@@ -103,14 +134,6 @@ fun SearchScreen() {
                 ) {
                     CircularProgressIndicator()
                 }
-            }
-
-            errorMessage != null -> {
-                Text(
-                    text = errorMessage.orEmpty(),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
             }
 
             results.isEmpty() -> {
@@ -132,9 +155,8 @@ fun SearchScreen() {
                     ) { song ->
                         SongResultRow(
                             song = song,
-                            onClick = {
-                                PlaybackCommands.playSong(context, song)
-                            },
+                            isResolving = resolvingSongId == song.id,
+                            onClick = { playSong(song) },
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
@@ -149,30 +171,39 @@ fun SearchScreen() {
 @Composable
 private fun SongResultRow(
     song: SearchSong,
+    isResolving: Boolean,
     onClick: () -> Unit,
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = !isResolving, onClick = onClick)
             .padding(vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = song.name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(3.dp))
-        Text(
-            text = buildString {
-                append(song.artists)
-                if (song.album.isNotBlank()) {
-                    append(" · ")
-                    append(song.album)
-                }
-            },
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = buildString {
+                    append(song.artists)
+                    if (song.album.isNotBlank()) {
+                        append(" · ")
+                        append(song.album)
+                    }
+                },
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+
+        if (isResolving) {
+            CircularProgressIndicator()
+        }
     }
 }
