@@ -68,28 +68,26 @@ fun SearchScreen() {
             errorMessage = null
             runCatching {
                 // Media3 keeps metadata per queue item. Resolve missing artwork
-                // for the whole queue up front so next/previous never loses it.
-                val enrichedQueue = client.ensureArtwork(results)
-                val selectedSong = enrichedQueue
-                    .firstOrNull { it.id == song.id }
-                    ?: song
-                val playbackUrl = client.playbackUrl(selectedSong.id)
-                Triple(enrichedQueue, selectedSong, playbackUrl)
+                // for the whole queue up front, while audio URLs stay lazy and
+                // are resolved by MeloXPlaybackService only when needed.
+                client.ensureArtwork(results)
             }
-                .onSuccess { (enrichedQueue, selectedSong, playbackUrl) ->
+                .onSuccess { enrichedQueue ->
+                    val selectedSong = enrichedQueue
+                        .firstOrNull { it.id == song.id }
+                        ?: song
                     results = enrichedQueue
                     PlaybackCommands.playQueue(
                         context = context,
                         songs = enrichedQueue,
                         selectedSongId = selectedSong.id,
-                        selectedPlaybackUrl = playbackUrl,
                         onFailure = { error ->
                             errorMessage = error.message ?: "播放器连接失败"
                         },
                     )
                 }
                 .onFailure {
-                    errorMessage = it.message ?: "无法获取歌曲音源"
+                    errorMessage = it.message ?: "无法准备歌曲"
                 }
             resolvingSongId = null
         }
