@@ -1,0 +1,135 @@
+package com.lladlam.melox.core.lyrics
+
+data class LyricLine(
+    val timeMs: Long,
+    val durationMs: Long? = null,
+    val text: String,
+    val translation: String? = null,
+    val romanization: String? = null,
+)
+
+data class LyricsDocument(
+    val lines: List<LyricLine>,
+) {
+    fun highlightedIndex(positionMs: Long): Int? {
+        if (lines.isEmpty()) return null
+        var low = 0
+        var high = lines.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (lines[mid].timeMs <= positionMs) {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return (low - 1).takeIf { it >= 0 }
+    }
+}
+
+object NeteaseLyricParser {
+    private const val ANNOTATION_TOLERANCE_MS = 750L
+    private val lrcTimestamp = Regex("\\[(\\d+):(\\d+(?:[.:]\\d+)?)\\]")
+    private val yrcSyllableTiming = Regex("\\(\\d+,\\d+,\\d+\\)")
+
+    fun parse(
+        yrc: String,
+        lrc: String,
+        translatedYrc: String = "",
+        translatedLrc: String = "",
+        romanizedYrc: String = "",
+        romanizedLrc: String = "",
+    ): LyricsDocument {
+        val yrcLines = parseYrc(yrc)
+        val lrcLines = parseLrc(lrc)
+        val primary = if (yrcLines.isNotEmpty()) yrcLines else lrcLines
+        if (primary.isEmpty()) return LyricsDocument(emptyList())
+
+        val translated = selectSecondary(translatedYrc, translatedLrc)
+        val romanized = selectSecondary(romanizedYrc, romanizedLrc)
+
+        return LyricsDocument(
+            primary.map { line ->
+                line.copy(
+                    translation = nearestSecondary(line, translated),
+                    romanization = nearestSecondary(line, romanized),
+                )
+            },
+        )
+    }
+
+    fun parseLrc(source: String): List<LyricLine> {
+        val result = mutableListOf<LyricLine>()
+        source.lineSequence().forEach { raw ->
+            val matches = lrcTimestamp.findAll(raw).toList()
+            if (matches.isEmpty()) return@forEach
+            val text = raw.substring(matches.last().range.last + 1).trim()
+            if (text.isBlank()) return@forEach
+
+            matches.forEach { match ->
+                val minutes = match.groupValues[1].toLongOrNull() ?: return@forEach
+                val seconds = match.groupValues[2]
+                    .replace(':', '.')
+                    .toDoubleOrNull() ?: return@forEach
+                result += LyricLine(
+                    timeMs = ((minutes * 60.0 + seconds) * 1_000.0).toLong(),
+                    text = text,
+                )
+            }
+        }
+        return inferDurations(result.sortedBy { it.timeMs })
+    }
+
+    fun parseYrc(source: String): List<LyricLine> {
+        val result = mutableListOf<LyricLine>()
+        source.lineSequence().forEach { raw ->
+            val line = raw.trim()
+            if (!line.startsWith('[')) return@forEach
+            val close = line.indexOf(']')
+            if (close <= 1) return@forEach
+
+            val timing = line.substring(1, close).split(',')
+            val startMs = timing.getOrNull(0)?.toLongOrNull() ?: return@forEach
+            val durationMs = timing.getOrNull(1)?.toLongOrNull()
+            val content = line.substring(close + 1)
+            val text = content.replace(yrcSyllableTiming, "").trim()
+            if (text.isBlank()) return@forEach
+
+            result += LyricLine(
+                timeMs = startMs,
+                durationMs = durationMs,
+                text = text,
+            )
+        }
+        return result.sortedBy { it.timeMs }
+    }
+
+    private fun selectSecondary(yrc: String, lrc: String): List<LyricLine> {
+        val synchronized = parseYrc(yrc)
+        return if (synchronized.isNotEmpty()) synchronized else parseLrc(lrc)
+    }
+
+    private fun nearestSecondary(
+        target: LyricLine,
+        candidates: List<LyricLine>,
+    ): String? {
+        if (candidates.isEmpty()) return null
+        val candidate = candidates.minByOrNull { kotlin.math.abs(it.timeMs - target.timeMs) }
+            ?: return null
+        if (kotlin.math.abs(candidate.timeMs - target.timeMs) > ANNOTATION_TOLERANCE_MS) {
+            return null
+        }
+        val text = candidate.text.trim()
+        return text.takeIf { it.isNotBlank() && it != target.text.trim() }
+    }
+
+    private fun inferDurations(lines: List<LyricLine>): List<LyricLine> =
+        lines.mapIndexed { index, line ->
+            if (line.durationMs != null) return@mapIndexed line
+            val next = lines.getOrNull(index + 1)?.timeMs
+            val duration = next
+                ?.let { (it - line.timeMs).coerceAtLeast(100L) }
+                ?: (line.text.length * 320L).coerceIn(2_000L, 8_000L)
+            line.copy(durationMs = duration)
+        }
+}
