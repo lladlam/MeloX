@@ -35,7 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
-import com.lladlam.melox.ui.player.MeloXNowPlaying
+import com.lladlam.melox.ui.player.MeloXIOSNowPlayingV2
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
 
@@ -96,7 +96,7 @@ fun MeloXApp(
         }
 
         if (showNowPlaying && playbackState.hasMedia) {
-            MeloXNowPlaying(
+            MeloXIOSNowPlayingV2(
                 state = playbackState,
                 onDismiss = { showNowPlaying = false },
             )
