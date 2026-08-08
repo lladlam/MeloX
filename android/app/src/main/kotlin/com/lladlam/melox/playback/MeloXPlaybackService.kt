@@ -1,5 +1,7 @@
 package com.lladlam.melox.playback
 
+import android.app.PendingIntent
+import android.content.Intent
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -12,6 +14,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.lladlam.melox.MainActivity
 
 @OptIn(UnstableApi::class)
 class MeloXPlaybackService : MediaSessionService() {
@@ -67,8 +70,21 @@ class MeloXPlaybackService : MediaSessionService() {
             },
         )
 
+        val sessionActivityIntent = Intent(this, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_OPEN_NOW_PLAYING
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val sessionActivity = PendingIntent.getActivity(
+            this,
+            1001,
+            sessionActivityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         player = exoPlayer
-        mediaSession = MediaSession.Builder(this, exoPlayer).build()
+        mediaSession = MediaSession.Builder(this, exoPlayer)
+            .setSessionActivity(sessionActivity)
+            .build()
     }
 
     override fun onGetSession(
