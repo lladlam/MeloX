@@ -72,6 +72,10 @@ class MeloXPlaybackUiState internal constructor() {
         private set
     var durationMs by mutableLongStateOf(0L)
         private set
+    var hasPrevious by mutableStateOf(false)
+        private set
+    var hasNext by mutableStateOf(false)
+        private set
 
     val hasMedia: Boolean
         get() = mediaId != null
@@ -112,6 +116,8 @@ class MeloXPlaybackUiState internal constructor() {
         durationMs = player.duration
             .takeUnless { it == C.TIME_UNSET || it < 0L }
             ?: 0L
+        hasPrevious = player.hasPreviousMediaItem()
+        hasNext = player.hasNextMediaItem()
     }
 
     fun togglePlayPause() {
@@ -124,12 +130,12 @@ class MeloXPlaybackUiState internal constructor() {
         controller?.seekTo(positionMs.coerceIn(0L, durationMs.coerceAtLeast(0L)))
     }
 
-    fun seekBack() {
-        controller?.seekBack()
+    fun previous() {
+        controller?.seekToPreviousMediaItem()
     }
 
-    fun seekForward() {
-        controller?.seekForward()
+    fun next() {
+        controller?.seekToNextMediaItem()
     }
 }
 
@@ -348,7 +354,13 @@ fun MeloXNowPlaying(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                PlayerControlButton("−10", 20.sp) { state.seekBack() }
+                PlayerControlButton(
+                    label = "⏮",
+                    fontSize = 28.sp,
+                    enabled = state.hasPrevious,
+                ) {
+                    state.previous()
+                }
                 PlayerControlButton(
                     if (state.isPlaying) "Ⅱ" else "▶",
                     if (state.isPlaying) 34.sp else 30.sp,
@@ -356,7 +368,13 @@ fun MeloXNowPlaying(
                 ) {
                     state.togglePlayPause()
                 }
-                PlayerControlButton("+10", 20.sp) { state.seekForward() }
+                PlayerControlButton(
+                    label = "⏭",
+                    fontSize = 28.sp,
+                    enabled = state.hasNext,
+                ) {
+                    state.next()
+                }
             }
 
             if (state.album.isNotBlank()) {
@@ -405,6 +423,7 @@ private fun PlayerControlButton(
     label: String,
     fontSize: androidx.compose.ui.unit.TextUnit,
     emphasized: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(
@@ -418,13 +437,14 @@ private fun PlayerControlButton(
                     Color.Transparent
                 },
             )
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             fontSize = fontSize,
             fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.24f),
         )
     }
 }
