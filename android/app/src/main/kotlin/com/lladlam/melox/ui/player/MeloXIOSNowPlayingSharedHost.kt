@@ -23,22 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,8 +60,6 @@ fun MeloXIOSNowPlayingSharedHost(
     val backdropAlpha = smoothStep(expansionProgress, 0.04f, 0.72f)
     val fullPlayerAlpha = smoothStep(expansionProgress, 0.64f, 0.98f)
     val cornerRadius = (22f * (1f - smoothStep(expansionProgress, 0f, 0.82f))).dp
-    val transitionActive = with(sharedTransitionScope) { isTransitionActive }
-    var targetArtworkBounds by remember(state.mediaId) { mutableStateOf<Rect?>(null) }
 
     val sharedContainerModifier = with(sharedTransitionScope) {
         Modifier.sharedBounds(
@@ -93,56 +83,11 @@ fun MeloXIOSNowPlayingSharedHost(
             alpha = backdropAlpha,
         )
 
-        // V2 owns the final artwork once the shared transition finishes. While the
-        // shared artwork is moving, cut only the target artwork rectangle out of V2's
-        // draw pass so the fixed full-size artwork cannot appear behind it. Everything
-        // else (title, progress, transport controls, etc.) keeps its original 2/3 fade.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = if (transitionActive && targetArtworkBounds == null) {
-                        0f
-                    } else {
-                        fullPlayerAlpha
-                    }
-                }
-                .drawWithContent {
-                    val bounds = targetArtworkBounds
-                    if (
-                        transitionActive &&
-                        bounds != null &&
-                        bounds.width > 1f &&
-                        bounds.height > 1f
-                    ) {
-                        val left = bounds.left.coerceIn(0f, size.width)
-                        val right = bounds.right.coerceIn(0f, size.width)
-                        val top = bounds.top.coerceIn(0f, size.height)
-                        val bottom = bounds.bottom.coerceIn(0f, size.height)
-
-                        if (top > 0f) {
-                            clipRect(0f, 0f, size.width, top) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                        if (bottom < size.height) {
-                            clipRect(0f, bottom, size.width, size.height) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                        if (left > 0f && bottom > top) {
-                            clipRect(0f, top, left, bottom) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                        if (right < size.width && bottom > top) {
-                            clipRect(right, top, size.width, bottom) {
-                                this@drawWithContent.drawContent()
-                            }
-                        }
-                    } else {
-                        drawContent()
-                    }
+                    alpha = fullPlayerAlpha
                 },
         ) {
             MeloXIOSNowPlayingV2(
@@ -155,7 +100,6 @@ fun MeloXIOSNowPlayingSharedHost(
             state = state,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-            onArtworkBounds = { targetArtworkBounds = it },
         )
     }
 }
@@ -216,7 +160,6 @@ private fun SharedArtworkDestination(
     state: MeloXPlaybackUiState,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
-    onArtworkBounds: (Rect) -> Unit,
 ) {
     val transitionActive = with(sharedTransitionScope) { isTransitionActive }
 
@@ -253,13 +196,10 @@ private fun SharedArtworkDestination(
                 Artwork(
                     url = state.artworkUrl,
                     modifier = sharedModifier
-                        .size(artworkSize)
-                        .onGloballyPositioned { coordinates ->
-                            onArtworkBounds(coordinates.boundsInRoot())
-                        }
                         .graphicsLayer {
                             alpha = if (transitionActive) 1f else 0f
                         }
+                        .size(artworkSize)
                         .clip(RoundedCornerShape(12.dp)),
                 )
 
