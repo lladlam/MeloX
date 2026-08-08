@@ -1,6 +1,13 @@
 package com.lladlam.melox.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -44,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.lladlam.melox.core.account.rememberNeteaseSessionStore
 import com.lladlam.melox.ui.account.NeteaseLoginScreen
 import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
-import com.lladlam.melox.ui.player.MeloXIOSNowPlayingV2
+import com.lladlam.melox.ui.player.MeloXIOSNowPlayingSharedHost
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
 import com.lladlam.melox.ui.settings.SettingsScreen
@@ -59,6 +66,7 @@ enum class AppTab(val title: String) {
 
 private val MeloXAccent = Color(0xFFFF3147)
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MeloXApp(
     openNowPlayingRequest: Int = 0,
@@ -86,47 +94,75 @@ fun MeloXApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            containerColor = MaterialTheme.colorScheme.background,
-            bottomBar = {
-                MeloXBottomChrome(
-                    selectedTab = selectedTab,
-                    onSelect = { selectedTab = it },
-                    hasMedia = playbackState.hasMedia,
-                    miniPlayer = {
-                        MeloXIOSMiniPlayer(
-                            state = playbackState,
-                            onExpand = { showNowPlaying = true },
-                        )
-                    },
-                )
-            },
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-            ) {
-                when (selectedTab) {
-                    AppTab.Search -> SearchScreen()
-                    AppTab.Home -> MeloXSectionShell("首页", "每日推荐与个性化内容将按 iOS MeloX 结构接入。")
-                    AppTab.Explore -> MeloXSectionShell("发现", "推荐、排行榜、精品与分类内容正在迁移。")
-                    AppTab.Library -> MeloXSectionShell("音乐库", "歌曲、歌单与最近播放将在这里接入。")
-                    AppTab.Settings -> SettingsScreen(
-                        session = neteaseSession,
-                        onLogin = { showNeteaseLogin = true },
+        SharedTransitionLayout(modifier = Modifier.fillMaxSize()) {
+            val sharedScope = this
+
+            AnimatedContent(
+                targetState = showNowPlaying && playbackState.hasMedia,
+                transitionSpec = {
+                    (fadeIn(tween(280)) togetherWith fadeOut(tween(220))).using(null)
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "melox-root-player-transition",
+            ) { fullPlayerVisible ->
+                val visibilityScope = this
+
+                if (fullPlayerVisible) {
+                    MeloXIOSNowPlayingSharedHost(
+                        state = playbackState,
+                        onDismiss = { showNowPlaying = false },
+                        sharedTransitionScope = sharedScope,
+                        animatedVisibilityScope = visibilityScope,
                     )
+                } else {
+                    Scaffold(
+                        modifier = Modifier.fillMaxSize(),
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        containerColor = MaterialTheme.colorScheme.background,
+                        bottomBar = {
+                            MeloXBottomChrome(
+                                selectedTab = selectedTab,
+                                onSelect = { selectedTab = it },
+                                hasMedia = playbackState.hasMedia,
+                                miniPlayer = {
+                                    MeloXIOSMiniPlayer(
+                                        state = playbackState,
+                                        onExpand = { showNowPlaying = true },
+                                        sharedTransitionScope = sharedScope,
+                                        animatedVisibilityScope = visibilityScope,
+                                    )
+                                },
+                            )
+                        },
+                    ) { innerPadding ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding),
+                        ) {
+                            when (selectedTab) {
+                                AppTab.Search -> SearchScreen()
+                                AppTab.Home -> MeloXSectionShell(
+                                    "首页",
+                                    "每日推荐与个性化内容将按 iOS MeloX 结构接入。",
+                                )
+                                AppTab.Explore -> MeloXSectionShell(
+                                    "发现",
+                                    "推荐、排行榜、精品与分类内容正在迁移。",
+                                )
+                                AppTab.Library -> MeloXSectionShell(
+                                    "音乐库",
+                                    "歌曲、歌单与最近播放将在这里接入。",
+                                )
+                                AppTab.Settings -> SettingsScreen(
+                                    session = neteaseSession,
+                                    onLogin = { showNeteaseLogin = true },
+                                )
+                            }
+                        }
+                    }
                 }
             }
-        }
-
-        if (showNowPlaying && playbackState.hasMedia) {
-            MeloXIOSNowPlayingV2(
-                state = playbackState,
-                onDismiss = { showNowPlaying = false },
-            )
         }
 
         if (showNeteaseLogin) {
