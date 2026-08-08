@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,7 +48,7 @@ import coil3.compose.SubcomposeAsyncImage
  * 0f = mini player
  * 1f = full player
  *
- * Both opening and closing use the same AnimatedVisibility transition. If the
+ * Opening and closing use the same AnimatedVisibility transition. If the
  * target changes while the spring is still moving, Compose retargets from the
  * current value and velocity instead of restarting a fixed-duration script.
  */
@@ -73,9 +74,11 @@ fun MeloXIOSNowPlayingSharedHost(
     }
 
     val transitionActive = with(sharedTransitionScope) { isTransitionActive }
-    val backdropAlpha = smoothStep(expansionProgress, 0.04f, 0.72f)
-    val fullPlayerAlpha = smoothStep(expansionProgress, 0.64f, 0.98f)
+    val backdropAlpha = smoothStep(expansionProgress, 0.06f, 0.74f)
+    val fullPlayerAlpha = smoothStep(expansionProgress, 0.66f, 0.98f)
     val cornerRadius = (22f * (1f - smoothStep(expansionProgress, 0f, 0.82f))).dp
+    val baseSurfaceAlpha = 0.82f + (0.18f * smoothStep(expansionProgress, 0.08f, 0.72f))
+    val baseSurfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = baseSurfaceAlpha)
 
     val sharedContainerModifier = with(sharedTransitionScope) {
         Modifier.sharedBounds(
@@ -93,20 +96,21 @@ fun MeloXIOSNowPlayingSharedHost(
         modifier = sharedContainerModifier
             .fillMaxSize()
             .clip(RoundedCornerShape(cornerRadius))
-            // Never allow the transforming container to expose a light/default
-            // Surface while the artwork-derived backdrop is still fading in.
-            .background(Color.Black),
+            // IMPORTANT: do not use Color.Black here. sharedBounds keeps both
+            // source and target content visible during the morph; a black target
+            // therefore becomes the giant black rectangle seen in light mode.
+            // Start from the same theme surface as the mini player and let the
+            // artwork field gradually cover it.
+            .background(baseSurfaceColor),
     ) {
-        // The coloured/blurred artwork field fades over the stable black base.
-        // On close this mapping is traversed in the exact opposite direction.
         MeloXExpansionBackdrop(
             artworkUrl = state.artworkUrl,
             alpha = backdropAlpha,
         )
 
-        // The V2 player can reveal its chrome from ~2/3 progress, but while the
-        // root shared transition is active we punch out its own stationary
-        // artwork. That leaves exactly one visible cover: the moving shared one.
+        // Full player chrome starts appearing only after the container/artwork
+        // have already travelled most of the way. On close the same progress is
+        // traversed backwards, so controls disappear before the card collapses.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -125,9 +129,7 @@ fun MeloXIOSNowPlayingSharedHost(
             }
         }
 
-        // This is the only artwork drawn while the root transition is active.
-        // Use SubcomposeAsyncImage instead of the generic Artwork() wrapper so
-        // a one-frame target-side load cannot expose Artwork's light placeholder.
+        // Exactly one moving cover is visible during the root transition.
         SharedArtworkDestination(
             state = state,
             sharedTransitionScope = sharedTransitionScope,
@@ -161,10 +163,12 @@ private fun MeloXExpansionBackdrop(
             )
         }
 
+        // These are readability veils only. They fade in with the artwork and
+        // are never an opaque black transform layer.
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.09f * alpha)),
+                .background(Color.Black.copy(alpha = 0.07f * alpha)),
         )
         Box(
             modifier = Modifier
@@ -172,9 +176,9 @@ private fun MeloXExpansionBackdrop(
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.01f * alpha),
-                            Color.Black.copy(alpha = 0.08f * alpha),
-                            Color.Black.copy(alpha = 0.44f * alpha),
+                            Color.Black.copy(alpha = 0.00f),
+                            Color.Black.copy(alpha = 0.05f * alpha),
+                            Color.Black.copy(alpha = 0.40f * alpha),
                         ),
                     ),
                 ),
@@ -209,7 +213,9 @@ private fun SharedArtworkDestination(
                 }
                 .size(artworkSize)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color.Black.copy(alpha = 0.10f)),
+                // Keep the fallback theme-neutral; never flash a white/black
+                // placeholder while Coil resolves the already-cached cover.
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.16f)),
         ) {
             if (!state.artworkUrl.isNullOrBlank()) {
                 SubcomposeAsyncImage(
@@ -217,11 +223,7 @@ private fun SharedArtworkDestination(
                     contentDescription = "专辑封面",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    loading = {
-                        // Source cover is already in Coil's memory cache in the
-                        // normal path. If it is not, keep this target dark rather
-                        // than briefly exposing the old white Artwork placeholder.
-                    },
+                    loading = {},
                     error = {},
                 )
             }
@@ -232,8 +234,6 @@ private fun SharedArtworkDestination(
 /**
  * Clears the stationary artwork that MeloXIOSNowPlayingV2 would otherwise draw
  * underneath the shared moving artwork while its controls are fading in.
- * Because the whole V2 layer is rendered offscreen, BlendMode.Clear exposes the
- * host backdrop below without hiding any of the surrounding controls/text.
  */
 @Composable
 private fun SharedArtworkCutout(state: MeloXPlaybackUiState) {
@@ -258,7 +258,7 @@ private fun SharedArtworkCutout(state: MeloXPlaybackUiState) {
 
 /**
  * Mirrors the V2 artwork page's final geometry so the shared destination and
- * the temporary cutout stay pixel-aligned with the real player artwork.
+ * temporary cutout stay pixel-aligned with the real player artwork.
  */
 @Composable
 private fun ArtworkTargetLayout(
@@ -289,8 +289,6 @@ private fun ArtworkTargetLayout(
 
                 Spacer(Modifier.height(22.dp))
 
-                // Invisible geometry twins keep the artwork destination aligned
-                // with the real V2 artwork/title block.
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         text = " ",
