@@ -97,11 +97,13 @@ fun MeloXIOSNowPlayingV2(
 
             AnimatedContent(
                 targetState = page,
-                transitionSpec = { pageTransform(initialState, targetState) },
+                transitionSpec = {
+                    pageTransform(initialState, targetState).using(null)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                label = "melox-now-playing-pages-v3",
+                label = "melox-now-playing-pages-v4",
             ) { selectedPage ->
                 when (selectedPage) {
                     MeloXNowPlayingPage.Artwork -> MeloXArtworkPageV3(state)
@@ -175,7 +177,7 @@ private fun MeloXAnimatedBackdrop(artworkUrl: String?) {
         AnimatedContent(
             targetState = artworkUrl,
             transitionSpec = {
-                fadeIn(tween(420)) togetherWith fadeOut(tween(420))
+                (fadeIn(tween(420)) togetherWith fadeOut(tween(420))).using(null)
             },
             label = "artwork-backdrop-crossfade",
         ) { url ->
@@ -296,29 +298,39 @@ private fun pageTransform(
 
 @Composable
 private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
-    val pausedScale by animateFloatAsState(
+    val artworkScale by animateFloatAsState(
         targetValue = if (state.isPlaying) 1f else 0.74f,
-        animationSpec = tween(480, easing = FastOutSlowInEasing),
-        label = "artwork-paused-scale-v3",
+        animationSpec = if (state.isPlaying) {
+            spring(
+                dampingRatio = 0.70f,
+                stiffness = 280f,
+                visibilityThreshold = 0.001f,
+            )
+        } else {
+            spring(
+                dampingRatio = 0.94f,
+                stiffness = 360f,
+                visibilityThreshold = 0.001f,
+            )
+        },
+        label = "artwork-scale-v4",
     )
-    val bounce = remember(state.mediaId) { Animatable(1f) }
-
-    LaunchedEffect(state.isPlaying, state.mediaId) {
-        bounce.snapTo(1f)
-        if (state.isPlaying) {
-            bounce.animateTo(
-                targetValue = 1.055f,
-                animationSpec = tween(170, easing = FastOutSlowInEasing),
-            )
-            bounce.animateTo(
-                targetValue = 1f,
-                animationSpec = spring(
-                    dampingRatio = 0.76f,
-                    stiffness = 330f,
-                ),
-            )
-        }
-    }
+    val shadowElevation by animateDpAsState(
+        targetValue = if (state.isPlaying) 26.dp else 14.dp,
+        animationSpec = spring(
+            dampingRatio = 0.92f,
+            stiffness = 320f,
+        ),
+        label = "artwork-shadow-elevation-v4",
+    )
+    val shadowAlpha by animateFloatAsState(
+        targetValue = if (state.isPlaying) 0.34f else 0.18f,
+        animationSpec = spring(
+            dampingRatio = 0.92f,
+            stiffness = 320f,
+        ),
+        label = "artwork-shadow-alpha-v4",
+    )
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val artworkSize = maxOf(
@@ -333,24 +345,24 @@ private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
             Spacer(Modifier.weight(1f))
 
             Box(
-                modifier = Modifier.size(artworkSize),
+                modifier = Modifier
+                    .size(artworkSize)
+                    .graphicsLayer {
+                        scaleX = artworkScale
+                        scaleY = artworkScale
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Artwork(
                     url = state.artworkUrl,
                     modifier = Modifier
-                        .size(artworkSize)
-                        .graphicsLayer {
-                            val scale = pausedScale * bounce.value
-                            scaleX = scale
-                            scaleY = scale
-                        }
+                        .fillMaxSize()
                         .shadow(
-                            elevation = if (state.isPlaying) 26.dp else 14.dp,
+                            elevation = shadowElevation,
                             shape = RoundedCornerShape(12.dp),
                             clip = false,
-                            ambientColor = Color.Black.copy(alpha = if (state.isPlaying) 0.34f else 0.18f),
-                            spotColor = Color.Black.copy(alpha = if (state.isPlaying) 0.34f else 0.18f),
+                            ambientColor = Color.Black.copy(alpha = shadowAlpha),
+                            spotColor = Color.Black.copy(alpha = shadowAlpha),
                         )
                         .clip(RoundedCornerShape(12.dp)),
                 )
