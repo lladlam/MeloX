@@ -67,19 +67,21 @@ fun SearchScreen() {
             resolvingSongId = song.id
             errorMessage = null
             runCatching {
-                val enrichedSong = client.ensureArtwork(song)
-                val playbackUrl = client.playbackUrl(song.id)
-                enrichedSong to playbackUrl
+                // Media3 keeps metadata per queue item. Resolve missing artwork
+                // for the whole queue up front so next/previous never loses it.
+                val enrichedQueue = client.ensureArtwork(results)
+                val selectedSong = enrichedQueue
+                    .firstOrNull { it.id == song.id }
+                    ?: song
+                val playbackUrl = client.playbackUrl(selectedSong.id)
+                Triple(enrichedQueue, selectedSong, playbackUrl)
             }
-                .onSuccess { (enrichedSong, playbackUrl) ->
-                    val queue = results.map { candidate ->
-                        if (candidate.id == enrichedSong.id) enrichedSong else candidate
-                    }
-                    results = queue
+                .onSuccess { (enrichedQueue, selectedSong, playbackUrl) ->
+                    results = enrichedQueue
                     PlaybackCommands.playQueue(
                         context = context,
-                        songs = queue,
-                        selectedSongId = enrichedSong.id,
+                        songs = enrichedQueue,
+                        selectedSongId = selectedSong.id,
                         selectedPlaybackUrl = playbackUrl,
                         onFailure = { error ->
                             errorMessage = error.message ?: "播放器连接失败"
