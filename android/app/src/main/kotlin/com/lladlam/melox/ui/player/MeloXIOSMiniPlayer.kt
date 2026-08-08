@@ -1,7 +1,10 @@
 package com.lladlam.melox.ui.player
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -33,10 +36,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun MeloXIOSMiniPlayer(
     state: MeloXPlaybackUiState,
     onExpand: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
     if (!state.hasMedia) return
 
@@ -81,11 +87,25 @@ fun MeloXIOSMiniPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                val sharedArtworkModifier =
+                    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                        with(sharedTransitionScope) {
+                            Modifier.sharedElement(
+                                sharedContentState = rememberSharedContentState(
+                                    key = sharedArtworkKey(state.mediaId),
+                                ),
+                                animatedVisibilityScope = animatedVisibilityScope,
+                            )
+                        }
+                    } else {
+                        Modifier
+                    }
+
                 Artwork(
                     url = state.artworkUrl,
-                    modifier = Modifier
+                    modifier = sharedArtworkModifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(7.dp)),
+                        .clip(RoundedCornerShape(10.dp)),
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
