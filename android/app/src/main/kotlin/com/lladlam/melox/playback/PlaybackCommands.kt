@@ -16,6 +16,7 @@ object PlaybackCommands {
     fun playSong(
         context: Context,
         song: SearchSong,
+        playbackUrl: String,
     ) {
         val intent = Intent(context, MeloXPlaybackService::class.java)
             .setAction(ACTION_PLAY_SONG)
@@ -24,7 +25,7 @@ object PlaybackCommands {
             .putExtra(EXTRA_ARTISTS, song.artists)
             .putExtra(EXTRA_ALBUM, song.album)
             .putExtra(EXTRA_ARTWORK, song.artworkUrl)
-            .putExtra(EXTRA_URL, song.playbackUrl)
+            .putExtra(EXTRA_URL, playbackUrl)
 
         context.startForegroundService(intent)
     }
