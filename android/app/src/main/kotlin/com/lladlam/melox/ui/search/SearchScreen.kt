@@ -66,12 +66,24 @@ fun SearchScreen() {
         scope.launch {
             resolvingSongId = song.id
             errorMessage = null
-            runCatching { client.playbackUrl(song.id) }
-                .onSuccess { playbackUrl ->
-                    PlaybackCommands.playSong(
+            runCatching {
+                val enrichedSong = client.ensureArtwork(song)
+                val playbackUrl = client.playbackUrl(song.id)
+                enrichedSong to playbackUrl
+            }
+                .onSuccess { (enrichedSong, playbackUrl) ->
+                    val queue = results.map { candidate ->
+                        if (candidate.id == enrichedSong.id) enrichedSong else candidate
+                    }
+                    results = queue
+                    PlaybackCommands.playQueue(
                         context = context,
-                        song = song,
-                        playbackUrl = playbackUrl,
+                        songs = queue,
+                        selectedSongId = enrichedSong.id,
+                        selectedPlaybackUrl = playbackUrl,
+                        onFailure = { error ->
+                            errorMessage = error.message ?: "播放器连接失败"
+                        },
                     )
                 }
                 .onFailure {
