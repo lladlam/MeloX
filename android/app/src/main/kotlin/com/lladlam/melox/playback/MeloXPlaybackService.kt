@@ -16,6 +16,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.lladlam.melox.MainActivity
+import com.lladlam.melox.core.account.NeteaseSessionStore
+import com.lladlam.melox.core.network.NeteaseSearchClient
 
 @OptIn(UnstableApi::class)
 class MeloXPlaybackService : MediaSessionService() {
@@ -34,9 +36,18 @@ class MeloXPlaybackService : MediaSessionService() {
                 ),
             )
 
+        // Read the persisted cookie lazily for every resolve instead of capturing it
+        // once when the service starts. A login/logout while playback is alive must
+        // immediately change the permission context used to obtain the next URL.
+        val cookieProvider = {
+            NeteaseSessionStore.readCookie(this@MeloXPlaybackService)
+        }
         val resolvingDataSourceFactory = ResolvingDataSource.Factory(
             httpDataSourceFactory,
-            NeteasePlaybackResolver(),
+            NeteasePlaybackResolver(
+                cookieProvider = cookieProvider,
+                client = NeteaseSearchClient(cookieProvider = cookieProvider),
+            ),
         )
 
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
