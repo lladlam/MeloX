@@ -1,11 +1,13 @@
 package com.lladlam.melox.ui.player
 
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -33,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +54,31 @@ fun MeloXIOSMiniPlayer(
 
     var accumulatedDrag by remember(state.mediaId) { mutableFloatStateOf(0f) }
 
+    // 0 = mini player fully visible, 1 = it has fully transformed into the
+    // full-screen player. Because this is driven by AnimatedVisibilityScope's
+    // own Transition and a spring, changing direction mid-flight keeps the
+    // current value/velocity instead of restarting a scripted animation.
+    val expansionProgress = if (animatedVisibilityScope != null) {
+        val value by animatedVisibilityScope.transition.animateFloat(
+            transitionSpec = {
+                spring(
+                    dampingRatio = 0.90f,
+                    stiffness = 320f,
+                    visibilityThreshold = 0.001f,
+                )
+            },
+            label = "mini-player-expansion-progress",
+        ) { visibility ->
+            if (visibility == EnterExitState.Visible) 0f else 1f
+        }
+        value
+    } else {
+        0f
+    }
+
+    val miniChromeAlpha = 1f - smoothStep(expansionProgress, 0.02f, 0.34f)
+    val miniSurfaceAlpha = 1f - smoothStep(expansionProgress, 0.06f, 0.62f)
+
     val sharedContainerModifier =
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
             with(sharedTransitionScope) {
@@ -59,15 +87,8 @@ fun MeloXIOSMiniPlayer(
                         key = sharedPlayerContainerKey(state.mediaId),
                     ),
                     animatedVisibilityScope = animatedVisibilityScope,
-                    enter = fadeIn(
-                        animationSpec = tween(
-                            durationMillis = 190,
-                            delayMillis = 260,
-                        ),
-                    ),
-                    exit = fadeOut(
-                        animationSpec = tween(durationMillis = 150),
-                    ),
+                    enter = EnterTransition.None,
+                    exit = ExitTransition.None,
                     resizeMode = SharedTransitionScope.ResizeMode.scaleToBounds(),
                 )
             }
@@ -98,13 +119,13 @@ fun MeloXIOSMiniPlayer(
                     )
                 },
             shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f * miniSurfaceAlpha),
             border = BorderStroke(
                 0.8.dp,
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f * miniSurfaceAlpha),
             ),
             tonalElevation = 0.dp,
-            shadowElevation = 5.dp,
+            shadowElevation = (5f * miniSurfaceAlpha).dp,
         ) {
             Row(
                 modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
@@ -139,7 +160,11 @@ fun MeloXIOSMiniPlayer(
                             .clip(RoundedCornerShape(10.dp)),
                     )
 
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .graphicsLayer { alpha = miniChromeAlpha },
+                    ) {
                         Text(
                             text = state.title.ifBlank { "正在播放" },
                             maxLines = 1,
@@ -162,11 +187,13 @@ fun MeloXIOSMiniPlayer(
                     kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
                     enabled = true,
                     onClick = state::togglePlayPause,
+                    modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
                 )
                 MiniVectorButton(
                     kind = MiniGlyph.Forward,
                     enabled = state.hasNext || state.repeatMode != 0,
                     onClick = state::next,
+                    modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
                 )
             }
         }
@@ -180,10 +207,11 @@ private fun MiniVectorButton(
     kind: MiniGlyph,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.94f else 0.26f)
     Box(
-        modifier = Modifier
+        modifier = modifier
             .size(36.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
@@ -233,4 +261,10 @@ private fun MiniVectorButton(
             }
         }
     }
+}
+
+private fun smoothStep(value: Float, start: Float, end: Float): Float {
+    if (end <= start) return if (value >= end) 1f else 0f
+    val t = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
 }
