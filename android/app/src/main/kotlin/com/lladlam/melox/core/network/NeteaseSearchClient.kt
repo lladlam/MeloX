@@ -1,10 +1,14 @@
 package com.lladlam.melox.core.network
 
+import com.lladlam.melox.core.account.NeteaseAccountProfile
+import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.lyrics.LyricsDocument
 import com.lladlam.melox.core.lyrics.NeteaseLyricParser
 import com.lladlam.melox.core.model.SearchSong
 import java.io.IOException
+import java.net.URLEncoder
 import java.security.MessageDigest
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +21,41 @@ import org.json.JSONObject
 
 class NeteaseSearchClient(
     private val httpClient: OkHttpClient = OkHttpClient(),
+    private val cookieProvider: () -> String = { "" },
 ) {
+    private val syntheticDeviceId: String = randomHex(26).uppercase()
+
+    suspend fun accountProfile(
+        cookieHeader: String = cookieProvider(),
+    ): NeteaseAccountProfile = withContext(Dispatchers.IO) {
+        if (!NeteaseSessionStore.containsMusicU(cookieHeader)) {
+            throw IOException("请先登录网易云音乐")
+        }
+
+        val response = eapi(
+            uri = "/api/w/nuser/account/get",
+            data = JSONObject(),
+            authenticated = true,
+            cookieHeaderOverride = cookieHeader,
+        )
+        val profile = response.optJSONObject("profile")
+            ?: throw IOException("网易云登录状态无效")
+        val userId = profile.optLong("userId", -1L)
+        if (userId <= 0L) throw IOException("网易云返回了无效的用户信息")
+
+        NeteaseAccountProfile(
+            userId = userId,
+            nickname = profile.optString("nickname").ifBlank { "网易云用户" },
+            avatarUrl = profile.optString("avatarUrl")
+                .takeIf(String::isNotBlank)
+                ?.let(::secureUrl),
+            backgroundUrl = profile.optString("backgroundUrl")
+                .takeIf(String::isNotBlank)
+                ?.let(::secureUrl),
+            signature = profile.optString("signature").takeIf(String::isNotBlank),
+        )
+    }
+
     suspend fun searchSongs(
         keywords: String,
         limit: Int = 30,
@@ -74,11 +112,6 @@ class NeteaseSearchClient(
         }
     }
 
-    /**
-     * Resolves missing album artwork for an entire queue in one song-detail
-     * request. Media3 stores metadata per MediaItem, so every queue entry must
-     * already carry its own artwork URI before it is handed to the player.
-     */
     suspend fun ensureArtwork(songs: List<SearchSong>): List<SearchSong> =
         withContext(Dispatchers.IO) {
             if (songs.isEmpty()) return@withContext songs
@@ -95,11 +128,8 @@ class NeteaseSearchClient(
 
             runCatching {
                 val songDescriptors = JSONArray().apply {
-                    missingIds.forEach { id ->
-                        put(JSONObject().put("id", id))
-                    }
+                    missingIds.forEach { id -> put(JSONObject().put("id", id)) }
                 }
-
                 val response = eapi(
                     uri = "/api/v3/song/detail",
                     data = JSONObject().put("c", songDescriptors.toString()),
@@ -112,20 +142,15 @@ class NeteaseSearchClient(
                         if (id <= 0L) continue
                         val albumObject = detail.optJSONObject("al")
                             ?: detail.optJSONObject("album")
-                        artworkFromAlbum(albumObject)?.let { artwork ->
-                            put(id, artwork)
-                        }
+                        artworkFromAlbum(albumObject)?.let { artwork -> put(id, artwork) }
                     }
                 }
 
                 songs.map { song ->
-                    if (!song.artworkUrl.isNullOrBlank()) {
-                        song
-                    } else {
-                        artworkById[song.id]
-                            ?.let { artwork -> song.copy(artworkUrl = artwork) }
-                            ?: song
-                    }
+                    if (!song.artworkUrl.isNullOrBlank()) song
+                    else artworkById[song.id]
+                        ?.let { artwork -> song.copy(artworkUrl = artwork) }
+                        ?: song
                 }
             }.getOrDefault(songs)
         }
@@ -162,11 +187,6 @@ class NeteaseSearchClient(
         playbackUrlBlocking(songId)
     }
 
-    /**
-     * Blocking form used by Media3's ResolvingDataSource. The resolver runs on
-     * ExoPlayer's loading thread, where Media3 explicitly allows blocking URI
-     * resolution before the upstream connection is opened.
-     */
     internal fun playbackUrlBlocking(songId: Long): String {
         try {
             val payload = JSONObject()
@@ -174,23 +194,23 @@ class NeteaseSearchClient(
                 .put("level", "standard")
                 .put("encodeType", "flac")
 
+            val currentCookie = cookieProvider()
             val response = eapi(
                 uri = "/api/song/enhance/player/url/v1",
                 data = payload,
+                authenticated = NeteaseSessionStore.containsMusicU(currentCookie),
+                cookieHeaderOverride = currentCookie.takeIf(String::isNotBlank),
             )
 
             val sources = response.optJSONArray("data") ?: JSONArray()
             for (index in 0 until sources.length()) {
                 val source = sources.optJSONObject(index) ?: continue
                 if (source.optLong("id", -1L) != songId) continue
-
-                val rawUrl = source.optString("url")
-                    .takeIf(String::isNotBlank)
-                    ?: continue
+                val rawUrl = source.optString("url").takeIf(String::isNotBlank) ?: continue
                 return secureUrl(rawUrl)
             }
         } catch (_: Exception) {
-            // Match the iOS client: direct EAPI source first, official outer URL as fallback.
+            // Same compatibility path as the iOS client for anonymous playback.
         }
 
         return "https://music.163.com/song/media/outer/url?id=$songId"
@@ -216,16 +236,25 @@ class NeteaseSearchClient(
     private fun eapi(
         uri: String,
         data: JSONObject,
+        authenticated: Boolean = false,
+        cookieHeaderOverride: String? = null,
     ): JSONObject {
         val timestampMillis = System.currentTimeMillis()
-        val header = JSONObject()
-            .put("os", "ios")
-            .put("appver", "9.0.90")
-            .put("osver", "18.0")
-            .put("buildver", (timestampMillis / 1_000L).toString())
-            .put("channel", "distribution")
-            .put("requestId", "${timestampMillis}_0000")
-            .put("__csrf", "")
+        val cookieHeader = cookieHeaderOverride ?: cookieProvider()
+        val cookies = NeteaseSessionStore.parseCookie(cookieHeader)
+
+        val header = if (authenticated) {
+            authenticatedEapiHeader(cookies, timestampMillis)
+        } else {
+            JSONObject()
+                .put("os", "ios")
+                .put("appver", "9.0.90")
+                .put("osver", "18.0")
+                .put("buildver", (timestampMillis / 1_000L).toString())
+                .put("channel", "distribution")
+                .put("requestId", "${timestampMillis}_0000")
+                .put("__csrf", "")
+        }
 
         val requestData = JSONObject(data.toString())
             .put("header", header)
@@ -239,19 +268,25 @@ class NeteaseSearchClient(
         ).toHexUppercase()
 
         val path = uri.replace("/api/", "/eapi/")
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url("https://interface.music.163.com$path")
             .header(
                 "User-Agent",
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
-                    "AppleWebKit/605.1.15 Mobile/15E148",
+                if (authenticated) {
+                    "NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)"
+                } else {
+                    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
+                        "AppleWebKit/605.1.15 Mobile/15E148"
+                },
             )
             .header("Accept", "*/*")
-            .post(
-                FormBody.Builder()
-                    .add("params", params)
-                    .build(),
-            )
+
+        if (authenticated) {
+            requestBuilder.header("Cookie", encodedCookieHeader(header))
+        }
+
+        val request = requestBuilder
+            .post(FormBody.Builder().add("params", params).build())
             .build()
 
         httpClient.newCall(request).execute().use { response ->
@@ -259,9 +294,7 @@ class NeteaseSearchClient(
             if (!response.isSuccessful) {
                 throw IOException("网易云请求失败：HTTP ${response.code}")
             }
-            if (body.isBlank()) {
-                throw IOException("网易云返回了空响应")
-            }
+            if (body.isBlank()) throw IOException("网易云返回了空响应")
 
             val jsonObject = JSONObject(body)
             val code = jsonObject.optInt("code", response.code)
@@ -274,6 +307,59 @@ class NeteaseSearchClient(
             return jsonObject
         }
     }
+
+    private fun authenticatedEapiHeader(
+        cookies: Map<String, String>,
+        timestampMillis: Long,
+    ): JSONObject {
+        val header = JSONObject()
+            .put("osver", cookies["osver"] ?: "16.2")
+            .put("deviceId", cookies["deviceId"] ?: syntheticDeviceId)
+            .put("os", cookies["os"] ?: "iPhone OS")
+            .put("appver", cookies["appver"] ?: "9.0.90")
+            .put("versioncode", cookies["versioncode"] ?: "140")
+            .put("mobilename", cookies["mobilename"] ?: "")
+            .put("buildver", cookies["buildver"] ?: (timestampMillis / 1_000L).toString())
+            .put("resolution", cookies["resolution"] ?: "1170x2532")
+            .put("__csrf", cookies["__csrf"] ?: "")
+            .put("channel", cookies["channel"] ?: "distribution")
+            .put("requestId", "${timestampMillis}_${randomDigits(4)}")
+
+        cookies["MUSIC_U"]?.takeIf(String::isNotBlank)?.let { musicU ->
+            header.put("MUSIC_U", musicU)
+        }
+        return header
+    }
+
+    private fun encodedCookieHeader(values: JSONObject): String {
+        val keys = buildList {
+            val iterator = values.keys()
+            while (iterator.hasNext()) add(iterator.next())
+        }.sorted()
+        return keys.joinToString("; ") { key ->
+            "${encodeURIComponent(key)}=${encodeURIComponent(values.optString(key))}"
+        }
+    }
+
+    private fun encodeURIComponent(value: String): String =
+        URLEncoder.encode(value, Charsets.UTF_8.name())
+            .replace("+", "%20")
+            .replace("%21", "!")
+            .replace("%27", "'")
+            .replace("%28", "(")
+            .replace("%29", ")")
+            .replace("%7E", "~")
+
+    private fun randomHex(byteCount: Int): String {
+        val bytes = ByteArray(byteCount)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun randomDigits(length: Int): String =
+        buildString(length) {
+            repeat(length) { append(('0'.code + SecureRandom().nextInt(10)).toChar()) }
+        }
 
     private fun md5Hex(value: String): String =
         MessageDigest.getInstance("MD5")
