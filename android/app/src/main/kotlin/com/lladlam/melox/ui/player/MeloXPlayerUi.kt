@@ -58,7 +58,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -228,7 +227,7 @@ class MeloXPlaybackUiState internal constructor() {
         }
     }
 
-    fun setVolume(value: Float) {
+    fun changeVolume(value: Float) {
         controller?.let { player ->
             player.volume = value.coerceIn(0f, 1f)
             volume = player.volume
@@ -665,7 +664,7 @@ private fun MeloXVolumeControl(state: MeloXPlaybackUiState) {
         Text("🔈", fontSize = 12.sp, color = Color.White.copy(alpha = 0.62f))
         Slider(
             value = state.volume,
-            onValueChange = state::setVolume,
+            onValueChange = state::changeVolume,
             modifier = Modifier
                 .weight(1f)
                 .height(28.dp),
