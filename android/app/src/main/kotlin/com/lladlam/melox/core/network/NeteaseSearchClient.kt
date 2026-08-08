@@ -1,5 +1,7 @@
 package com.lladlam.melox.core.network
 
+import com.lladlam.melox.core.lyrics.LyricsDocument
+import com.lladlam.melox.core.lyrics.NeteaseLyricParser
 import com.lladlam.melox.core.model.SearchSong
 import java.io.IOException
 import java.security.MessageDigest
@@ -130,6 +132,31 @@ class NeteaseSearchClient(
 
     suspend fun ensureArtwork(song: SearchSong): SearchSong =
         ensureArtwork(listOf(song)).firstOrNull() ?: song
+
+    suspend fun lyrics(songId: Long): LyricsDocument = withContext(Dispatchers.IO) {
+        val response = eapi(
+            uri = "/api/song/lyric/v1",
+            data = JSONObject()
+                .put("id", songId)
+                .put("cp", false)
+                .put("tv", 0)
+                .put("lv", 0)
+                .put("rv", 0)
+                .put("kv", 0)
+                .put("yv", 0)
+                .put("ytv", 0)
+                .put("yrv", 0),
+        )
+
+        NeteaseLyricParser.parse(
+            yrc = response.optJSONObject("yrc")?.optString("lyric").orEmpty(),
+            lrc = response.optJSONObject("lrc")?.optString("lyric").orEmpty(),
+            translatedYrc = response.optJSONObject("ytlrc")?.optString("lyric").orEmpty(),
+            translatedLrc = response.optJSONObject("tlyric")?.optString("lyric").orEmpty(),
+            romanizedYrc = response.optJSONObject("yromalrc")?.optString("lyric").orEmpty(),
+            romanizedLrc = response.optJSONObject("romalrc")?.optString("lyric").orEmpty(),
+        )
+    }
 
     suspend fun playbackUrl(songId: Long): String = withContext(Dispatchers.IO) {
         try {
