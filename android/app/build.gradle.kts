@@ -48,6 +48,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.10.1")
 
     implementation("com.squareup.okhttp3:okhttp:5.3.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
