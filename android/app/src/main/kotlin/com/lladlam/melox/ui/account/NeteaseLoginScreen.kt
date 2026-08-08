@@ -7,6 +7,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.lladlam.melox.core.account.NeteaseSessionStore
 import kotlinx.coroutines.delay
 
@@ -69,14 +71,14 @@ fun NeteaseLoginScreen(
                 verificationError = null
                 val result = session.acceptAuthenticatedCookie(candidate)
                 verifying = false
-                result.onSuccess {
+                if (result.isSuccess) {
                     CookieManager.getInstance().flush()
                     onLoggedIn()
                     return@LaunchedEffect
-                }.onFailure { error ->
-                    verificationError = error.message ?: "登录状态验证失败，请稍后重试"
-                    handledCookie = null
                 }
+                verificationError = result.exceptionOrNull()?.message
+                    ?: "登录状态验证失败，请稍后重试"
+                handledCookie = null
             }
             delay(500)
         }
@@ -86,7 +88,6 @@ fun NeteaseLoginScreen(
         onDispose {
             webView?.stopLoading()
             webView?.destroy()
-            webView = null
         }
     }
 
@@ -105,7 +106,9 @@ fun NeteaseLoginScreen(
         ) {
             Text(
                 text = "取消",
-                modifier = Modifier.padding(8.dp),
+                modifier = Modifier
+                    .clickable(onClick = onDismiss)
+                    .padding(8.dp),
                 color = Color(0xFFFF3147),
                 fontSize = 16.sp,
             )
