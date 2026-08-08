@@ -159,6 +159,15 @@ class NeteaseSearchClient(
     }
 
     suspend fun playbackUrl(songId: Long): String = withContext(Dispatchers.IO) {
+        playbackUrlBlocking(songId)
+    }
+
+    /**
+     * Blocking form used by Media3's ResolvingDataSource. The resolver runs on
+     * ExoPlayer's loading thread, where Media3 explicitly allows blocking URI
+     * resolution before the upstream connection is opened.
+     */
+    internal fun playbackUrlBlocking(songId: Long): String {
         try {
             val payload = JSONObject()
                 .put("ids", "[$songId]")
@@ -178,13 +187,13 @@ class NeteaseSearchClient(
                 val rawUrl = source.optString("url")
                     .takeIf(String::isNotBlank)
                     ?: continue
-                return@withContext secureUrl(rawUrl)
+                return secureUrl(rawUrl)
             }
         } catch (_: Exception) {
             // Match the iOS client: direct EAPI source first, official outer URL as fallback.
         }
 
-        "https://music.163.com/song/media/outer/url?id=$songId"
+        return "https://music.163.com/song/media/outer/url?id=$songId"
     }
 
     private fun artworkFromAlbum(albumObject: JSONObject?): String? =
