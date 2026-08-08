@@ -73,34 +73,63 @@ class NeteaseSearchClient(
     }
 
     /**
-     * Search responses usually contain album artwork already. Some result
-     * variants do not, so resolve the canonical song detail only when needed.
+     * Resolves missing album artwork for an entire queue in one song-detail
+     * request. Media3 stores metadata per MediaItem, so every queue entry must
+     * already carry its own artwork URI before it is handed to the player.
      */
-    suspend fun ensureArtwork(song: SearchSong): SearchSong = withContext(Dispatchers.IO) {
-        if (!song.artworkUrl.isNullOrBlank()) return@withContext song
+    suspend fun ensureArtwork(songs: List<SearchSong>): List<SearchSong> =
+        withContext(Dispatchers.IO) {
+            if (songs.isEmpty()) return@withContext songs
 
-        runCatching {
-            val songDescriptors = JSONArray()
-                .put(JSONObject().put("id", song.id))
-                .toString()
-            val response = eapi(
-                uri = "/api/v3/song/detail",
-                data = JSONObject().put("c", songDescriptors),
-            )
-            val songs = response.optJSONArray("songs") ?: return@runCatching song
-            for (index in 0 until songs.length()) {
-                val detail = songs.optJSONObject(index) ?: continue
-                if (detail.optLong("id", -1L) != song.id) continue
-                val albumObject = detail.optJSONObject("al")
-                    ?: detail.optJSONObject("album")
-                val artwork = artworkFromAlbum(albumObject)
-                if (!artwork.isNullOrBlank()) {
-                    return@runCatching song.copy(artworkUrl = artwork)
+            val missingIds = songs
+                .asSequence()
+                .filter { it.artworkUrl.isNullOrBlank() }
+                .map { it.id }
+                .filter { it > 0L }
+                .distinct()
+                .toList()
+
+            if (missingIds.isEmpty()) return@withContext songs
+
+            runCatching {
+                val songDescriptors = JSONArray().apply {
+                    missingIds.forEach { id ->
+                        put(JSONObject().put("id", id))
+                    }
                 }
-            }
-            song
-        }.getOrDefault(song)
-    }
+
+                val response = eapi(
+                    uri = "/api/v3/song/detail",
+                    data = JSONObject().put("c", songDescriptors.toString()),
+                )
+                val details = response.optJSONArray("songs") ?: return@runCatching songs
+                val artworkById = buildMap<Long, String> {
+                    for (index in 0 until details.length()) {
+                        val detail = details.optJSONObject(index) ?: continue
+                        val id = detail.optLong("id", -1L)
+                        if (id <= 0L) continue
+                        val albumObject = detail.optJSONObject("al")
+                            ?: detail.optJSONObject("album")
+                        artworkFromAlbum(albumObject)?.let { artwork ->
+                            put(id, artwork)
+                        }
+                    }
+                }
+
+                songs.map { song ->
+                    if (!song.artworkUrl.isNullOrBlank()) {
+                        song
+                    } else {
+                        artworkById[song.id]
+                            ?.let { artwork -> song.copy(artworkUrl = artwork) }
+                            ?: song
+                    }
+                }
+            }.getOrDefault(songs)
+        }
+
+    suspend fun ensureArtwork(song: SearchSong): SearchSong =
+        ensureArtwork(listOf(song)).firstOrNull() ?: song
 
     suspend fun playbackUrl(songId: Long): String = withContext(Dispatchers.IO) {
         try {
