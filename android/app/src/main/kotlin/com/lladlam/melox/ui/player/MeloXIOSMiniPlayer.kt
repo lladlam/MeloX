@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.matchParentSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -116,7 +116,9 @@ fun MeloXIOSMiniPlayer(
         // transport chrome outside prevents scaleToBounds from stretching glyphs/text
         // into the bright horizontal streak that used to appear during expansion.
         Surface(
-            modifier = sharedContainerModifier.matchParentSize(),
+            modifier = sharedContainerModifier
+                .fillMaxWidth()
+                .height(52.dp),
             shape = RoundedCornerShape(22.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f * miniSurfaceAlpha),
             border = BorderStroke(
