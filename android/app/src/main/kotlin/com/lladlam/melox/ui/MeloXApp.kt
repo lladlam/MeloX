@@ -34,7 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.lladlam.melox.ui.player.MeloXMiniPlayer
+import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
 import com.lladlam.melox.ui.player.MeloXNowPlaying
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
@@ -60,9 +60,6 @@ fun MeloXApp(
         }
     }
 
-    // NowPlaying is an in-activity Compose overlay, not a separate Activity.
-    // Consume system back first so edge-back dismisses the player instead of
-    // finishing MeloX and returning the user to the launcher.
     BackHandler(enabled = showNowPlaying) {
         showNowPlaying = false
     }
@@ -74,7 +71,7 @@ fun MeloXApp(
             containerColor = MaterialTheme.colorScheme.background,
             bottomBar = {
                 Column {
-                    MeloXMiniPlayer(
+                    MeloXIOSMiniPlayer(
                         state = playbackState,
                         onExpand = { showNowPlaying = true },
                     )
