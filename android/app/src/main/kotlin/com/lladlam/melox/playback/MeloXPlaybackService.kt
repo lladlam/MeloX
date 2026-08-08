@@ -1,11 +1,9 @@
 package com.lladlam.melox.playback
 
-import android.content.Intent
-import android.net.Uri
 import android.util.Log
 import androidx.annotation.OptIn
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -38,6 +36,16 @@ class MeloXPlaybackService : MediaSessionService() {
         val exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
+            .apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(),
+                    true,
+                )
+                setHandleAudioBecomingNoisy(true)
+            }
 
         exoPlayer.addListener(
             object : Player.Listener {
@@ -48,6 +56,13 @@ class MeloXPlaybackService : MediaSessionService() {
                         error,
                     )
                 }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    Log.d(
+                        TAG,
+                        "isPlaying=$isPlaying, ongoing=${isPlaybackOngoing()}",
+                    )
+                }
             },
         )
 
@@ -55,54 +70,12 @@ class MeloXPlaybackService : MediaSessionService() {
         mediaSession = MediaSession.Builder(this, exoPlayer).build()
     }
 
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int,
-    ): Int {
-        if (intent?.action == PlaybackCommands.ACTION_PLAY_SONG) {
-            playSong(intent)
-        }
-        return super.onStartCommand(intent, flags, startId)
-    }
-
-    private fun playSong(intent: Intent) {
-        val url = intent.getStringExtra(PlaybackCommands.EXTRA_URL) ?: return
-        val id = intent.getLongExtra(PlaybackCommands.EXTRA_ID, -1L)
-        val title = intent.getStringExtra(PlaybackCommands.EXTRA_TITLE).orEmpty()
-        val artists = intent.getStringExtra(PlaybackCommands.EXTRA_ARTISTS).orEmpty()
-        val album = intent.getStringExtra(PlaybackCommands.EXTRA_ALBUM).orEmpty()
-        val artwork = intent.getStringExtra(PlaybackCommands.EXTRA_ARTWORK)
-
-        Log.d(TAG, "Preparing playback for song=$id url=$url")
-
-        val metadata = MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(artists)
-            .setAlbumTitle(album)
-            .apply {
-                artwork
-                    ?.takeIf(String::isNotBlank)
-                    ?.let { setArtworkUri(Uri.parse(it)) }
-            }
-            .build()
-
-        val item = MediaItem.Builder()
-            .setMediaId(if (id > 0L) id.toString() else url)
-            .setUri(url)
-            .setMediaMetadata(metadata)
-            .build()
-
-        player?.apply {
-            setMediaItem(item)
-            prepare()
-            play()
-        }
-    }
-
     override fun onGetSession(
         controllerInfo: MediaSession.ControllerInfo,
-    ): MediaSession? = mediaSession
+    ): MediaSession? {
+        Log.d(TAG, "Controller connected: ${controllerInfo.packageName}")
+        return mediaSession
+    }
 
     override fun onDestroy() {
         mediaSession?.release()
