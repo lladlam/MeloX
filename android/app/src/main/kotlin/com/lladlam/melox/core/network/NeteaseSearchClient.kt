@@ -77,6 +77,42 @@ class NeteaseSearchClient(
         }
     }
 
+    suspend fun playbackUrl(songId: Long): String = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject()
+                .put("ids", "[$songId]")
+                .put("level", "standard")
+                .put("encodeType", "flac")
+
+            val response = eapi(
+                uri = "/api/song/enhance/player/url/v1",
+                data = payload,
+            )
+
+            val sources = response.optJSONArray("data") ?: JSONArray()
+            for (index in 0 until sources.length()) {
+                val source = sources.optJSONObject(index) ?: continue
+                if (source.optLong("id", -1L) != songId) continue
+
+                val rawUrl = source.optString("url")
+                    .takeIf(String::isNotBlank)
+                    ?: continue
+                return@withContext securePlaybackUrl(rawUrl)
+            }
+        } catch (_: Exception) {
+            // Match the iOS client: direct EAPI source first, official outer URL as fallback.
+        }
+
+        "https://music.163.com/song/media/outer/url?id=$songId"
+    }
+
+    private fun securePlaybackUrl(url: String): String =
+        if (url.startsWith("http://", ignoreCase = true)) {
+            "https://${url.substringAfter("://")}" 
+        } else {
+            url
+        }
+
     private fun eapi(
         uri: String,
         data: JSONObject,
