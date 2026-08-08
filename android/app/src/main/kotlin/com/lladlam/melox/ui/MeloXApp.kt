@@ -1,5 +1,6 @@
 package com.lladlam.melox.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +58,13 @@ fun MeloXApp(
         if (openNowPlayingRequest > 0 && playbackState.hasMedia) {
             showNowPlaying = true
         }
+    }
+
+    // NowPlaying is an in-activity Compose overlay, not a separate Activity.
+    // Consume system back first so edge-back dismisses the player instead of
+    // finishing MeloX and returning the user to the launcher.
+    BackHandler(enabled = showNowPlaying) {
+        showNowPlaying = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
