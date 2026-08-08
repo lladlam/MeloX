@@ -41,10 +41,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.core.account.rememberNeteaseSessionStore
+import com.lladlam.melox.ui.account.NeteaseLoginScreen
 import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
 import com.lladlam.melox.ui.player.MeloXIOSNowPlayingV2
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
 import com.lladlam.melox.ui.search.SearchScreen
+import com.lladlam.melox.ui.settings.SettingsScreen
 
 enum class AppTab(val title: String) {
     Home("首页"),
@@ -62,7 +65,9 @@ fun MeloXApp(
 ) {
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
     var showNowPlaying by remember { mutableStateOf(false) }
+    var showNeteaseLogin by remember { mutableStateOf(false) }
     val playbackState = rememberMeloXPlaybackUiState()
+    val neteaseSession = rememberNeteaseSessionStore()
 
     LaunchedEffect(openNowPlayingRequest, playbackState.hasMedia) {
         if (openNowPlayingRequest > 0 && playbackState.hasMedia) {
@@ -70,7 +75,13 @@ fun MeloXApp(
         }
     }
 
-    BackHandler(enabled = showNowPlaying) {
+    LaunchedEffect(neteaseSession.cookie) {
+        if (neteaseSession.isLoggedIn) {
+            neteaseSession.refreshProfile()
+        }
+    }
+
+    BackHandler(enabled = showNowPlaying && !showNeteaseLogin) {
         showNowPlaying = false
     }
 
@@ -103,7 +114,10 @@ fun MeloXApp(
                     AppTab.Home -> MeloXSectionShell("首页", "每日推荐与个性化内容将按 iOS MeloX 结构接入。")
                     AppTab.Explore -> MeloXSectionShell("发现", "推荐、排行榜、精品与分类内容正在迁移。")
                     AppTab.Library -> MeloXSectionShell("音乐库", "歌曲、歌单与最近播放将在这里接入。")
-                    AppTab.Settings -> MeloXSectionShell("设置", "播放器、歌词、音质与账号设置将按 iOS 版迁移。")
+                    AppTab.Settings -> SettingsScreen(
+                        session = neteaseSession,
+                        onLogin = { showNeteaseLogin = true },
+                    )
                 }
             }
         }
@@ -112,6 +126,17 @@ fun MeloXApp(
             MeloXIOSNowPlayingV2(
                 state = playbackState,
                 onDismiss = { showNowPlaying = false },
+            )
+        }
+
+        if (showNeteaseLogin) {
+            NeteaseLoginScreen(
+                session = neteaseSession,
+                onDismiss = { showNeteaseLogin = false },
+                onLoggedIn = {
+                    showNeteaseLogin = false
+                    selectedTab = AppTab.Settings
+                },
             )
         }
     }
