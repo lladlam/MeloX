@@ -57,12 +57,7 @@ class NeteaseSearchClient(
                 val albumObject = song.optJSONObject("al")
                     ?: song.optJSONObject("album")
                 val album = albumObject?.optString("name").orEmpty()
-                val artwork = albumObject
-                    ?.optString("picUrl")
-                    ?.takeIf(String::isNotBlank)
-                    ?: albumObject
-                        ?.optString("blurPicUrl")
-                        ?.takeIf(String::isNotBlank)
+                val artwork = artworkFromAlbum(albumObject)
 
                 add(
                     SearchSong(
@@ -75,6 +70,36 @@ class NeteaseSearchClient(
                 )
             }
         }
+    }
+
+    /**
+     * Search responses usually contain album artwork already. Some result
+     * variants do not, so resolve the canonical song detail only when needed.
+     */
+    suspend fun ensureArtwork(song: SearchSong): SearchSong = withContext(Dispatchers.IO) {
+        if (!song.artworkUrl.isNullOrBlank()) return@withContext song
+
+        runCatching {
+            val songDescriptors = JSONArray()
+                .put(JSONObject().put("id", song.id))
+                .toString()
+            val response = eapi(
+                uri = "/api/v3/song/detail",
+                data = JSONObject().put("c", songDescriptors),
+            )
+            val songs = response.optJSONArray("songs") ?: return@runCatching song
+            for (index in 0 until songs.length()) {
+                val detail = songs.optJSONObject(index) ?: continue
+                if (detail.optLong("id", -1L) != song.id) continue
+                val albumObject = detail.optJSONObject("al")
+                    ?: detail.optJSONObject("album")
+                val artwork = artworkFromAlbum(albumObject)
+                if (!artwork.isNullOrBlank()) {
+                    return@runCatching song.copy(artworkUrl = artwork)
+                }
+            }
+            song
+        }.getOrDefault(song)
     }
 
     suspend fun playbackUrl(songId: Long): String = withContext(Dispatchers.IO) {
@@ -97,7 +122,7 @@ class NeteaseSearchClient(
                 val rawUrl = source.optString("url")
                     .takeIf(String::isNotBlank)
                     ?: continue
-                return@withContext securePlaybackUrl(rawUrl)
+                return@withContext secureUrl(rawUrl)
             }
         } catch (_: Exception) {
             // Match the iOS client: direct EAPI source first, official outer URL as fallback.
@@ -106,7 +131,17 @@ class NeteaseSearchClient(
         "https://music.163.com/song/media/outer/url?id=$songId"
     }
 
-    private fun securePlaybackUrl(url: String): String =
+    private fun artworkFromAlbum(albumObject: JSONObject?): String? =
+        albumObject
+            ?.optString("picUrl")
+            ?.takeIf(String::isNotBlank)
+            ?.let(::secureUrl)
+            ?: albumObject
+                ?.optString("blurPicUrl")
+                ?.takeIf(String::isNotBlank)
+                ?.let(::secureUrl)
+
+    private fun secureUrl(url: String): String =
         if (url.startsWith("http://", ignoreCase = true)) {
             "https://${url.substringAfter("://")}" 
         } else {
