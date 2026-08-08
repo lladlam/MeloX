@@ -250,6 +250,8 @@ fun MeloXNowPlaying(
     state: MeloXPlaybackUiState,
     onDismiss: () -> Unit,
 ) {
+    var showLyrics by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -277,23 +279,49 @@ fun MeloXNowPlaying(
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "正在播放",
+                    text = if (showLyrics) "歌词" else "正在播放",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
                 )
                 Spacer(Modifier.weight(1f))
-                Spacer(Modifier.size(44.dp))
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            MaterialTheme.colorScheme.onSurface.copy(
+                                alpha = if (showLyrics) 0.12f else 0.06f,
+                            ),
+                        )
+                        .clickable { showLyrics = !showLyrics },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "词",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
 
             Spacer(Modifier.height(34.dp))
 
-            Artwork(
-                url = state.artworkUrl,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(28.dp)),
-            )
+            if (showLyrics) {
+                MeloXLyricsPanel(
+                    state = state,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f),
+                )
+            } else {
+                Artwork(
+                    url = state.artworkUrl,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(28.dp)),
+                )
+            }
 
             Spacer(Modifier.height(30.dp))
 
