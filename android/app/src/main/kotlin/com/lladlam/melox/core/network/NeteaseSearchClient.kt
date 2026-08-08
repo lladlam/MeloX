@@ -188,17 +188,19 @@ class NeteaseSearchClient(
     }
 
     internal fun playbackUrlBlocking(songId: Long): String {
+        val currentCookie = cookieProvider()
+        val loggedIn = NeteaseSessionStore.containsMusicU(currentCookie)
+
         try {
             val payload = JSONObject()
                 .put("ids", "[$songId]")
                 .put("level", "standard")
                 .put("encodeType", "flac")
 
-            val currentCookie = cookieProvider()
             val response = eapi(
                 uri = "/api/song/enhance/player/url/v1",
                 data = payload,
-                authenticated = NeteaseSessionStore.containsMusicU(currentCookie),
+                authenticated = loggedIn,
                 cookieHeaderOverride = currentCookie.takeIf(String::isNotBlank),
             )
 
@@ -209,10 +211,22 @@ class NeteaseSearchClient(
                 val rawUrl = source.optString("url").takeIf(String::isNotBlank) ?: continue
                 return secureUrl(rawUrl)
             }
-        } catch (_: Exception) {
-            // Same compatibility path as the iOS client for anonymous playback.
+
+            if (loggedIn) {
+                throw IOException("网易云登录态未返回可播放链接，可能是账号权限或版权限制")
+            }
+        } catch (error: Exception) {
+            // Once a real MUSIC_U session exists we must not silently fall back to
+            // an anonymous outer-url endpoint: doing so discards VIP/cloud/region
+            // permissions and makes a successful login effectively useless.
+            if (loggedIn) {
+                if (error is IOException) throw error
+                throw IOException("登录态播放链接获取失败", error)
+            }
         }
 
+        // Anonymous compatibility path only. Logged-in playback always goes through
+        // the authenticated EAPI path above.
         return "https://music.163.com/song/media/outer/url?id=$songId"
     }
 
@@ -236,14 +250,16 @@ class NeteaseSearchClient(
     private fun eapi(
         uri: String,
         data: JSONObject,
-        authenticated: Boolean = false,
+        authenticated: Boolean? = null,
         cookieHeaderOverride: String? = null,
     ): JSONObject {
         val timestampMillis = System.currentTimeMillis()
         val cookieHeader = cookieHeaderOverride ?: cookieProvider()
         val cookies = NeteaseSessionStore.parseCookie(cookieHeader)
+        val useAuthenticatedSession = authenticated
+            ?: NeteaseSessionStore.containsMusicU(cookieHeader)
 
-        val header = if (authenticated) {
+        val header = if (useAuthenticatedSession) {
             authenticatedEapiHeader(cookies, timestampMillis)
         } else {
             JSONObject()
@@ -272,7 +288,7 @@ class NeteaseSearchClient(
             .url("https://interface.music.163.com$path")
             .header(
                 "User-Agent",
-                if (authenticated) {
+                if (useAuthenticatedSession) {
                     "NeteaseMusic 9.0.90/5038 (iPhone; iOS 16.2; zh_CN)"
                 } else {
                     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) " +
@@ -281,7 +297,9 @@ class NeteaseSearchClient(
             )
             .header("Accept", "*/*")
 
-        if (authenticated) {
+        if (useAuthenticatedSession) {
+            // MeloX's iOS/watch EAPI client serializes the EAPI header as the
+            // request Cookie header. MUSIC_U is part of that header when logged in.
             requestBuilder.header("Cookie", encodedCookieHeader(header))
         }
 
