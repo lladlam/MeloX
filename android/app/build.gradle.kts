@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
     implementation("androidx.media3:media3-common:1.10.1")
+    implementation("androidx.media3:media3-datasource:1.10.1")
     implementation("androidx.media3:media3-exoplayer:1.10.1")
     implementation("androidx.media3:media3-session:1.10.1")
 
