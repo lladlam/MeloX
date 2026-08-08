@@ -1,0 +1,46 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "android-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+
+      - name: Build installable APK
+        working-directory: android
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk "MeloX-Android-${GITHUB_REF_NAME}.apk"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "MeloX-Android-${GITHUB_REF_NAME}.apk#MeloX Android APK" \
+            --title "MeloX Android ${GITHUB_REF_NAME#android-v}" \
+            --generate-notes \
+            --prerelease
