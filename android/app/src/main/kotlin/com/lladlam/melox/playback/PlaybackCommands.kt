@@ -24,16 +24,14 @@ object PlaybackCommands {
     private var activeController: MediaController? = null
 
     /**
-     * Connects the app UI to [MeloXPlaybackService] through Media3's standard
-     * controller/session path and installs the supplied songs as the player's
-     * playlist. The selected item uses the already-resolved direct playback URL;
-     * neighboring items retain the official NetEase outer URL as a lazy fallback.
+     * Installs the supplied songs as Media3 playlist items using stable MeloX
+     * song URIs. MeloXPlaybackService resolves each song ID to a temporary
+     * NetEase CDN URL just-in-time when ExoPlayer actually opens the item.
      */
     fun playQueue(
         context: Context,
         songs: List<SearchSong>,
         selectedSongId: Long,
-        selectedPlaybackUrl: String,
         onFailure: ((Throwable) -> Unit)? = null,
     ) {
         val appContext = context.applicationContext
@@ -49,15 +47,7 @@ object PlaybackCommands {
                     val controller = controllerFuture.get()
                     val queue = songs
                         .ifEmpty { return@addListener }
-                        .map { song ->
-                            song.toMediaItem(
-                                playbackUrl = if (song.id == selectedSongId) {
-                                    selectedPlaybackUrl
-                                } else {
-                                    song.playbackUrl
-                                },
-                            )
-                        }
+                        .map(SearchSong::toMediaItem)
                     val startIndex = songs.indexOfFirst { it.id == selectedSongId }
                         .takeIf { it >= 0 }
                         ?: 0
@@ -82,7 +72,7 @@ object PlaybackCommands {
         )
     }
 
-    private fun SearchSong.toMediaItem(playbackUrl: String): MediaItem {
+    private fun SearchSong.toMediaItem(): MediaItem {
         val metadata = MediaMetadata.Builder()
             .setTitle(name)
             .setArtist(artists)
@@ -97,7 +87,7 @@ object PlaybackCommands {
 
         return MediaItem.Builder()
             .setMediaId(id.toString())
-            .setUri(playbackUrl)
+            .setUri(NeteasePlaybackResolver.uriForSong(id))
             .setMediaMetadata(metadata)
             .build()
     }
