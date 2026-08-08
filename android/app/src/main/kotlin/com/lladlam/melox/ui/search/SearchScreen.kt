@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.model.SearchSong
 import com.lladlam.melox.core.network.NeteaseSearchClient
 import com.lladlam.melox.playback.PlaybackCommands
@@ -37,8 +38,13 @@ import kotlinx.coroutines.launch
 @Composable
 fun SearchScreen() {
     val context = LocalContext.current
+    val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
-    val client = remember { NeteaseSearchClient() }
+    val client = remember(appContext) {
+        NeteaseSearchClient(
+            cookieProvider = { NeteaseSessionStore.readCookie(appContext) },
+        )
+    }
 
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<SearchSong>>(emptyList()) }
