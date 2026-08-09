@@ -8,7 +8,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -104,19 +103,14 @@ fun MeloXIOSMiniPlayer(
         val miniShape = RoundedCornerShape(22.dp)
         val dark = isSystemInDarkTheme()
         val glassTint = if (dark) {
-            Color.Black.copy(alpha = 0.18f)
+            Color.Black.copy(alpha = 0.08f)
         } else {
-            Color.White.copy(alpha = 0.46f)
+            Color.White.copy(alpha = 0.10f)
         }
         val fallbackTint = if (dark) {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.56f)
         } else {
-            Color.White.copy(alpha = 0.78f)
-        }
-        val borderColor = if (dark) {
-            Color.White.copy(alpha = 0.13f * miniSurfaceAlpha)
-        } else {
-            Color.White.copy(alpha = 0.62f * miniSurfaceAlpha)
+            Color.White.copy(alpha = 0.54f)
         }
 
         Surface(
@@ -142,19 +136,16 @@ fun MeloXIOSMiniPlayer(
                     tint = glassTint,
                     fallbackTint = fallbackTint,
                     alpha = miniSurfaceAlpha,
-                    blurRadius = 3.dp,
-                    // The official Miuix 24dp lens is designed for its 64dp nav pill.
-                    // On this 52dp player it produces rectangular sampling artifacts,
-                    // so the mini player keeps real backdrop blur/vibrancy but no lens.
+                    blurRadius = 6.dp,
                     refractionHeight = 0.dp,
                     refractionAmount = 0.dp,
                     chromaticAberration = 0f,
                 ),
             shape = miniShape,
             color = Color.Transparent,
-            border = BorderStroke(0.8.dp, borderColor),
+            border = null,
             tonalElevation = 0.dp,
-            shadowElevation = (3f * miniSurfaceAlpha).dp,
+            shadowElevation = (2f * miniSurfaceAlpha).dp,
         ) {
             Row(
                 modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
