@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lladlam.melox.core.account.rememberNeteaseSessionStore
 import com.lladlam.melox.ui.account.NeteaseLoginScreen
+import com.lladlam.melox.ui.library.LibraryScreen
 import com.lladlam.melox.ui.player.MeloXIOSMiniPlayer
 import com.lladlam.melox.ui.player.MeloXIOSNowPlayingSharedHost
 import com.lladlam.melox.ui.player.rememberMeloXPlaybackUiState
@@ -74,6 +75,7 @@ fun MeloXApp(
     var selectedTab by remember { mutableStateOf(AppTab.Home) }
     var showNowPlaying by remember { mutableStateOf(false) }
     var showNeteaseLogin by remember { mutableStateOf(false) }
+    var loginReturnTab by remember { mutableStateOf(AppTab.Settings) }
     val playbackState = rememberMeloXPlaybackUiState()
     val neteaseSession = rememberNeteaseSessionStore()
 
@@ -141,18 +143,28 @@ fun MeloXApp(
                             "发现",
                             "推荐、排行榜、精品与分类内容正在迁移。",
                         )
-                        AppTab.Library -> MeloXSectionShell(
-                            "音乐库",
-                            "歌曲、歌单与最近播放将在这里接入。",
+                        AppTab.Library -> LibraryScreen(
+                            session = neteaseSession,
+                            onLogin = {
+                                loginReturnTab = AppTab.Library
+                                showNeteaseLogin = true
+                            },
                         )
                         AppTab.Settings -> SettingsScreen(
                             session = neteaseSession,
-                            onLogin = { showNeteaseLogin = true },
+                            onLogin = {
+                                loginReturnTab = AppTab.Settings
+                                showNeteaseLogin = true
+                            },
                         )
                     }
                 }
             }
 
+            // Transparent hit-test barrier: the home/library/search pages stay
+            // mounted for the morph animation, but can never receive input while
+            // the full player is on top. Keep this below the player host so player
+            // controls remain interactive.
             if (fullPlayerVisible) {
                 Box(
                     modifier = Modifier
@@ -189,7 +201,7 @@ fun MeloXApp(
                 onDismiss = { showNeteaseLogin = false },
                 onLoggedIn = {
                     showNeteaseLogin = false
-                    selectedTab = AppTab.Settings
+                    selectedTab = loginReturnTab
                 },
             )
         }
