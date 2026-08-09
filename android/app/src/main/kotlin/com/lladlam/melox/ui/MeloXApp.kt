@@ -8,10 +8,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -344,6 +344,12 @@ private fun MeloXBottomChrome(
             val navWidth = lerpDp(expandedNavWidth, compactSize, shrinkStage)
             val navRadius = lerpDp(34.dp, 29.dp, shrinkStage)
             val navShape = RoundedCornerShape(navRadius)
+            val primaryTabs = listOf(
+                AppTab.Home to RootGlyph.Home,
+                AppTab.Explore to RootGlyph.Explore,
+                AppTab.Library to RootGlyph.Library,
+                AppTab.Settings to RootGlyph.Settings,
+            )
 
             val desiredCompactMiniVisibleWidth =
                 (maxWidth - horizontalMargin * 2 - compactSize * 2 - compactGap * 2)
@@ -370,11 +376,6 @@ private fun MeloXBottomChrome(
             }
 
             val dark = isSystemInDarkTheme()
-            val glassBorder = if (dark) {
-                Color.White.copy(alpha = 0.14f)
-            } else {
-                Color.White.copy(alpha = 0.62f)
-            }
 
             Surface(
                 modifier = Modifier
@@ -387,18 +388,26 @@ private fun MeloXBottomChrome(
                         shape = navShape,
                         tint = bottomLiquidGlassTint(),
                         fallbackTint = bottomGlassFallbackColor(),
-                        blurRadius = 3.dp,
-                        // Keep a restrained lens only on the large navigation pill.
-                        // Miuix's official example uses the lens on a 64dp pill and
-                        // does not enable chromatic dispersion.
-                        refractionHeight = 16.dp,
-                        refractionAmount = 10.dp,
+                        blurRadius = 6.dp,
+                        refractionHeight = 0.dp,
+                        refractionAmount = 0.dp,
                         chromaticAberration = 0f,
-                    ),
+                    )
+                    .pointerInput(progress, selectedTab) {
+                        detectTapGestures { tap ->
+                            if (progress < 0.56f) {
+                                val segmentWidth = size.width / 4f
+                                val index = (tap.x / segmentWidth).toInt().coerceIn(0, 3)
+                                onSelect(primaryTabs[index].first)
+                            } else if (progress >= 0.68f) {
+                                onSelect(selectedTab)
+                            }
+                        }
+                    },
                 shape = navShape,
                 color = Color.Transparent,
-                border = BorderStroke(0.8.dp, glassBorder),
-                shadowElevation = lerpDp(3.dp, 5.dp, progress),
+                border = null,
+                shadowElevation = lerpDp(2.dp, 4.dp, progress),
                 tonalElevation = 0.dp,
             ) {
                 Box(Modifier.fillMaxSize()) {
@@ -409,36 +418,22 @@ private fun MeloXBottomChrome(
                             .padding(horizontal = 5.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val primaryTabs = listOf(
-                            AppTab.Home to RootGlyph.Home,
-                            AppTab.Explore to RootGlyph.Explore,
-                            AppTab.Library to RootGlyph.Library,
-                            AppTab.Settings to RootGlyph.Settings,
-                        )
                         primaryTabs.forEach { (tab, glyph) ->
                             RootTabButton(
                                 tab = tab,
                                 glyph = glyph,
                                 selected = selectedTab == tab,
                                 labelAlpha = labelAlpha,
-                                onClick = { onSelect(tab) },
+                                dark = dark,
                             )
                         }
                     }
 
-                    // Do not leave a transparent clickable node over the expanded
-                    // tab row. Compose hit testing can still choose a transparent
-                    // sibling as the top hit path, so the compact layer only exists
-                    // once the morph has actually entered compact mode.
                     if (progress > 0.50f) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer { alpha = compactLayerAlpha }
-                                .clickable(
-                                    enabled = progress >= 0.68f,
-                                    onClick = { onSelect(selectedTab) },
-                                ),
+                                .graphicsLayer { alpha = compactLayerAlpha },
                             contentAlignment = Alignment.Center,
                         ) {
                             RootGlyphIcon(
@@ -461,9 +456,7 @@ private fun MeloXBottomChrome(
                         shape = CircleShape,
                         tint = bottomLiquidGlassTint(),
                         fallbackTint = bottomGlassFallbackColor(),
-                        blurRadius = 3.dp,
-                        // A 58dp circle is too small for the 24dp Miuix nav lens;
-                        // use real backdrop blur/vibrancy here without refraction.
+                        blurRadius = 6.dp,
                         refractionHeight = 0.dp,
                         refractionAmount = 0.dp,
                         chromaticAberration = 0f,
@@ -471,8 +464,8 @@ private fun MeloXBottomChrome(
                     .clickable { onSelect(AppTab.Search) },
                 shape = CircleShape,
                 color = Color.Transparent,
-                border = BorderStroke(0.8.dp, glassBorder),
-                shadowElevation = lerpDp(3.dp, 5.dp, progress),
+                border = null,
+                shadowElevation = lerpDp(2.dp, 4.dp, progress),
                 tonalElevation = 0.dp,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -494,17 +487,17 @@ private fun MeloXBottomChrome(
 @Composable
 private fun bottomLiquidGlassTint(): Color =
     if (isSystemInDarkTheme()) {
-        Color.Black.copy(alpha = 0.18f)
+        Color.Black.copy(alpha = 0.10f)
     } else {
-        Color.White.copy(alpha = 0.48f)
+        Color.White.copy(alpha = 0.12f)
     }
 
 @Composable
 private fun bottomGlassFallbackColor(): Color =
     if (isSystemInDarkTheme()) {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.58f)
     } else {
-        Color.White.copy(alpha = 0.82f)
+        Color.White.copy(alpha = 0.56f)
     }
 
 @Composable
@@ -513,19 +506,20 @@ private fun RowScope.RootTabButton(
     glyph: RootGlyph,
     selected: Boolean,
     labelAlpha: Float,
-    onClick: () -> Unit,
+    dark: Boolean,
 ) {
     val foreground = if (selected) MeloXAccent else MaterialTheme.colorScheme.onSurface
+    val selectedBackground = when {
+        !selected -> Color.Transparent
+        dark -> Color.White.copy(alpha = 0.08f)
+        else -> Color.White.copy(alpha = 0.24f)
+    }
     Column(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
             .clip(RoundedCornerShape(28.dp))
-            .background(
-                if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f)
-                else Color.Transparent,
-            )
-            .clickable(onClick = onClick)
+            .background(selectedBackground)
             .padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
