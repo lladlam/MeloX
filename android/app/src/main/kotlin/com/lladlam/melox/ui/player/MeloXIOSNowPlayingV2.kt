@@ -81,18 +81,22 @@ private const val PLAYER_CONTROLS_HEIGHT = 279
 fun MeloXIOSNowPlayingV2(
     state: MeloXPlaybackUiState,
     onDismiss: () -> Unit,
+    page: MeloXNowPlayingPage = MeloXNowPlayingPage.Artwork,
+    onPageChanged: (MeloXNowPlayingPage) -> Unit = {},
+    drawBackdrop: Boolean = true,
+    drawArtwork: Boolean = true,
 ) {
-    var page by remember { mutableStateOf(MeloXNowPlayingPage.Artwork) }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(if (drawBackdrop) Color.Black else Color.Transparent),
     ) {
-        MeloXFlowingLightBackdrop(
-            artworkUrl = state.artworkUrl,
-            isPlaying = state.isPlaying,
-        )
+        if (drawBackdrop) {
+            MeloXFlowingLightBackdrop(
+                artworkUrl = state.artworkUrl,
+                isPlaying = state.isPlaying,
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -113,7 +117,10 @@ fun MeloXIOSNowPlayingV2(
                 label = "melox-now-playing-pages-v4",
             ) { selectedPage ->
                 when (selectedPage) {
-                    MeloXNowPlayingPage.Artwork -> MeloXArtworkPageV3(state)
+                    MeloXNowPlayingPage.Artwork -> MeloXArtworkPageV3(
+                        state = state,
+                        drawArtwork = drawArtwork,
+                    )
                     MeloXNowPlayingPage.Lyrics -> MeloXIOSLyricsPanel(
                         state = state,
                         modifier = Modifier.fillMaxSize(),
@@ -129,11 +136,13 @@ fun MeloXIOSNowPlayingV2(
                 state = state,
                 page = page,
                 onPageSelected = { destination ->
-                    page = if (page == destination) {
-                        MeloXNowPlayingPage.Artwork
-                    } else {
-                        destination
-                    }
+                    onPageChanged(
+                        if (page == destination) {
+                            MeloXNowPlayingPage.Artwork
+                        } else {
+                            destination
+                        },
+                    )
                 },
             )
         }
@@ -248,7 +257,10 @@ private fun pageTransform(
 }
 
 @Composable
-private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
+private fun MeloXArtworkPageV3(
+    state: MeloXPlaybackUiState,
+    drawArtwork: Boolean,
+) {
     val artworkScale by animateFloatAsState(
         targetValue = if (state.isPlaying) 1f else 0.74f,
         animationSpec = if (state.isPlaying) {
@@ -304,19 +316,21 @@ private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                Artwork(
-                    url = state.artworkUrl,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .shadow(
-                            elevation = shadowElevation,
-                            shape = RoundedCornerShape(12.dp),
-                            clip = false,
-                            ambientColor = Color.Black.copy(alpha = shadowAlpha),
-                            spotColor = Color.Black.copy(alpha = shadowAlpha),
-                        )
-                        .clip(RoundedCornerShape(12.dp)),
-                )
+                if (drawArtwork) {
+                    Artwork(
+                        url = state.artworkUrl,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .shadow(
+                                elevation = shadowElevation,
+                                shape = RoundedCornerShape(12.dp),
+                                clip = false,
+                                ambientColor = Color.Black.copy(alpha = shadowAlpha),
+                                spotColor = Color.Black.copy(alpha = shadowAlpha),
+                            )
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                }
             }
 
             Spacer(Modifier.height(20.dp))
@@ -342,9 +356,6 @@ private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
                 )
             }
 
-            // Keep the metadata attached to the progress control like MeloX/iOS.
-            // Any spare vertical space belongs above the artwork, not between
-            // artist metadata and the transport controls.
             Spacer(Modifier.height(8.dp))
         }
     }
