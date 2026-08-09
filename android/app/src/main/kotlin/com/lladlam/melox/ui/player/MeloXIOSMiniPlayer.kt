@@ -76,8 +76,25 @@ fun MeloXIOSMiniPlayer(
         0f
     }
 
-    val miniChromeAlpha = 1f - smoothStep(expansionProgress, 0.02f, 0.34f)
+    // #286 geometry is intentionally preserved. Only the mini-player chrome fade
+    // is extended so title/artist/transport remain visibly attached to the source
+    // surface for most of the morph. The same curve runs backwards on collapse.
+    val miniChromeAlpha = 1f - smoothStep(expansionProgress, 0.05f, 0.72f)
     val miniSurfaceAlpha = 1f - smoothStep(expansionProgress, 0.04f, 0.42f)
+
+    // sharedBounds is rendered in SharedTransitionScope's overlay. Without lifting
+    // these non-shared controls into that same overlay, the expanding surface can
+    // cover them before their alpha animation is visible, which looks like a snap.
+    val chromeOverlayModifier =
+        if (sharedTransitionScope != null) {
+            with(sharedTransitionScope) {
+                Modifier.renderInSharedTransitionScopeOverlay(
+                    zIndexInOverlay = 2f,
+                )
+            }
+        } else {
+            Modifier
+        }
 
     val sharedContainerModifier =
         if (sharedTransitionScope != null && animatedVisibilityScope != null) {
@@ -193,6 +210,7 @@ fun MeloXIOSMiniPlayer(
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .then(chromeOverlayModifier)
                         .graphicsLayer { alpha = miniChromeAlpha },
                 ) {
                     Text(
@@ -217,13 +235,13 @@ fun MeloXIOSMiniPlayer(
                 kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
                 enabled = true,
                 onClick = state::togglePlayPause,
-                modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
+                modifier = chromeOverlayModifier.graphicsLayer { alpha = miniChromeAlpha },
             )
             MiniVectorButton(
                 kind = MiniGlyph.Forward,
                 enabled = state.hasNext || state.repeatMode != 0,
                 onClick = state::next,
-                modifier = Modifier.graphicsLayer { alpha = miniChromeAlpha },
+                modifier = chromeOverlayModifier.graphicsLayer { alpha = miniChromeAlpha },
             )
         }
     }
