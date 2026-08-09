@@ -11,6 +11,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.lladlam.melox.core.audio.MusicQuality
+import com.lladlam.melox.core.audio.MusicQualityPreferences
+import com.lladlam.melox.core.audio.MusicQualityRuntime
 import com.lladlam.melox.core.model.SearchSong
 import java.util.concurrent.Executor
 
@@ -23,11 +26,6 @@ object PlaybackCommands {
     @Volatile
     private var activeController: MediaController? = null
 
-    /**
-     * Installs the supplied songs as Media3 playlist items using stable MeloX
-     * song URIs. MeloXPlaybackService resolves each song ID to a temporary
-     * NetEase CDN URL just-in-time when ExoPlayer actually opens the item.
-     */
     fun playQueue(
         context: Context,
         songs: List<SearchSong>,
@@ -35,6 +33,8 @@ object PlaybackCommands {
         onFailure: ((Throwable) -> Unit)? = null,
     ) {
         val appContext = context.applicationContext
+        val quality = MusicQualityPreferences.read(appContext)
+        MusicQualityRuntime.selected = quality
         val token = SessionToken(
             appContext,
             ComponentName(appContext, MeloXPlaybackService::class.java),
@@ -47,7 +47,7 @@ object PlaybackCommands {
                     val controller = controllerFuture.get()
                     val queue = songs
                         .ifEmpty { return@addListener }
-                        .map { song -> song.toMediaItem() }
+                        .map { song -> song.toMediaItem(quality) }
                     val startIndex = songs.indexOfFirst { it.id == selectedSongId }
                         .takeIf { it >= 0 }
                         ?: 0
@@ -61,7 +61,7 @@ object PlaybackCommands {
 
                     Log.d(
                         TAG,
-                        "Playback queue dispatched: size=${queue.size}, start=$startIndex, song=$selectedSongId",
+                        "Playback queue dispatched: size=${queue.size}, start=$startIndex, song=$selectedSongId, quality=${quality.apiLevel}",
                     )
                 } catch (error: Throwable) {
                     Log.e(TAG, "Unable to connect MediaController", error)
@@ -72,7 +72,50 @@ object PlaybackCommands {
         )
     }
 
-    private fun SearchSong.toMediaItem(): MediaItem {
+    /**
+     * Persist a MeloX quality choice and rebuild the currently installed queue
+     * with quality-bearing melox:// URIs. This forces ExoPlayer to reopen the
+     * current item, so a switch from standard to lossless/Hi-Res takes effect
+     * immediately instead of waiting for the next song.
+     */
+    fun changeQuality(
+        context: Context,
+        quality: MusicQuality,
+    ) {
+        val appContext = context.applicationContext
+        MusicQualityPreferences.write(appContext, quality)
+        MusicQualityRuntime.selected = quality
+        MusicQualityRuntime.clear()
+
+        val controller = activeController ?: return
+        val currentIndex = controller.currentMediaItemIndex.coerceAtLeast(0)
+        val currentPosition = controller.currentPosition.coerceAtLeast(0L)
+        val shouldResume = controller.playWhenReady
+        val items = List(controller.mediaItemCount) { index ->
+            val item = controller.getMediaItemAt(index)
+            val songId = item.mediaId.toLongOrNull()
+            if (songId == null) {
+                item
+            } else {
+                MediaItem.Builder()
+                    .setMediaId(item.mediaId)
+                    .setUri(NeteasePlaybackResolver.uriForSong(songId, quality))
+                    .setMediaMetadata(item.mediaMetadata)
+                    .build()
+            }
+        }
+
+        if (items.isEmpty()) return
+        controller.setMediaItems(
+            items,
+            currentIndex.coerceIn(0, items.lastIndex),
+            currentPosition,
+        )
+        controller.prepare()
+        if (shouldResume) controller.play()
+    }
+
+    private fun SearchSong.toMediaItem(quality: MusicQuality): MediaItem {
         val metadata = MediaMetadata.Builder()
             .setTitle(name)
             .setArtist(artists)
@@ -87,7 +130,7 @@ object PlaybackCommands {
 
         return MediaItem.Builder()
             .setMediaId(id.toString())
-            .setUri(NeteasePlaybackResolver.uriForSong(id))
+            .setUri(NeteasePlaybackResolver.uriForSong(id, quality))
             .setMediaMetadata(metadata)
             .build()
     }
