@@ -152,6 +152,9 @@ class NeteaseLibraryClient(
         value ?: return null
         val id = value.optLong("id", -1L)
         if (id <= 0L) return null
+        val description = value.optString("description")
+            .takeIf(String::isNotBlank)
+            ?: value.optString("copywriter").takeIf(String::isNotBlank)
         return NeteasePlaylistSummary(
             id = id,
             name = value.optString("name").ifBlank { "未命名歌单" },
@@ -162,6 +165,8 @@ class NeteaseLibraryClient(
             creatorName = value.optJSONObject("creator")
                 ?.optString("nickname")
                 .orEmpty(),
+            playCount = value.optLong("playCount", 0L).coerceAtLeast(0L),
+            description = description,
         )
     }
 
@@ -187,12 +192,14 @@ class NeteaseLibraryClient(
             ?: album?.optString("blurPicUrl")
                 ?.takeIf(String::isNotBlank)
                 ?.let(::secureUrl)
+        val duration = value.optLong("dt", value.optLong("duration", 0L)).coerceAtLeast(0L)
         return SearchSong(
             id = id,
             name = value.optString("name").ifBlank { "未知歌曲" },
             artists = artists.ifBlank { "未知歌手" },
             album = album?.optString("name").orEmpty(),
             artworkUrl = artwork,
+            durationMs = duration,
         )
     }
 
