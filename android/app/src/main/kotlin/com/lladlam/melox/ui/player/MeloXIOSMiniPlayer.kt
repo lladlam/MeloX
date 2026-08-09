@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.ui.glass.meloXLiquidGlass
+import top.yukonga.miuix.kmp.blur.LayerBackdrop
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -49,6 +51,7 @@ fun MeloXIOSMiniPlayer(
     onExpand: () -> Unit,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    glassBackdrop: LayerBackdrop? = null,
 ) {
     if (!state.hasMedia) return
 
@@ -97,6 +100,7 @@ fun MeloXIOSMiniPlayer(
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 3.dp),
     ) {
+        val miniShape = RoundedCornerShape(22.dp)
         Surface(
             modifier = sharedContainerModifier
                 .fillMaxWidth()
@@ -113,9 +117,17 @@ fun MeloXIOSMiniPlayer(
                         },
                         onDragCancel = { accumulatedDrag = 0f },
                     )
-                },
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f * miniSurfaceAlpha),
+                }
+                .meloXLiquidGlass(
+                    backdrop = glassBackdrop,
+                    shape = miniShape,
+                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
+                    fallbackTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                    alpha = miniSurfaceAlpha,
+                    chromaticAberration = 0.10f,
+                ),
+            shape = miniShape,
+            color = Color.Transparent,
             border = BorderStroke(
                 0.8.dp,
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f * miniSurfaceAlpha),
