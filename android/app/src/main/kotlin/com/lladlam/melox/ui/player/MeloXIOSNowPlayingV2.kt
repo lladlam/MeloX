@@ -49,26 +49,30 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
+import com.lladlam.melox.core.account.NeteaseSessionStore
+import com.lladlam.melox.core.audio.MusicQuality
+import com.lladlam.melox.core.audio.MusicQualityPreferences
+import com.lladlam.melox.core.audio.MusicQualityRuntime
+import com.lladlam.melox.core.audio.NeteaseQualityClient
+import com.lladlam.melox.core.audio.SongAudioAvailability
+import com.lladlam.melox.playback.PlaybackCommands
+import kotlinx.coroutines.delay
 import kotlin.math.roundToLong
 
 private const val PLAYER_CONTROLS_HEIGHT = 279
@@ -85,7 +89,10 @@ fun MeloXIOSNowPlayingV2(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        MeloXAnimatedBackdrop(state.artworkUrl)
+        MeloXFlowingLightBackdrop(
+            artworkUrl = state.artworkUrl,
+            isPlaying = state.isPlaying,
+        )
 
         Column(
             modifier = Modifier
@@ -167,62 +174,6 @@ private fun MeloXGrabber(onDismiss: () -> Unit) {
                 }
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.52f)),
-        )
-    }
-}
-
-@Composable
-private fun MeloXAnimatedBackdrop(artworkUrl: String?) {
-    Box(Modifier.fillMaxSize()) {
-        AnimatedContent(
-            targetState = artworkUrl,
-            transitionSpec = {
-                (fadeIn(tween(420)) togetherWith fadeOut(tween(420))).using(null)
-            },
-            label = "artwork-backdrop-crossfade",
-        ) { url ->
-            if (!url.isNullOrBlank()) {
-                AsyncImage(
-                    model = url,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            scaleX = 1.30f
-                            scaleY = 1.30f
-                        }
-                        .blur(
-                            radius = 46.dp,
-                            edgeTreatment = BlurredEdgeTreatment.Unbounded,
-                        ),
-                )
-            } else {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color(0xFF171717)),
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.11f)),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.02f),
-                            Color.Black.copy(alpha = 0.10f),
-                            Color.Black.copy(alpha = 0.48f),
-                        ),
-                    ),
-                ),
         )
     }
 }
@@ -498,7 +449,10 @@ private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
                 fontWeight = FontWeight.Medium,
             )
 
-            MeloXQualityChipV3(modifier = Modifier.align(Alignment.Center))
+            MeloXQualityChipV3(
+                state = state,
+                modifier = Modifier.align(Alignment.Center),
+            )
 
             Text(
                 text = "−${formatDurationV3((state.durationMs - shownPosition).coerceAtLeast(0L))}",
@@ -512,8 +466,43 @@ private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
 }
 
 @Composable
-private fun MeloXQualityChipV3(modifier: Modifier = Modifier) {
+private fun MeloXQualityChipV3(
+    state: MeloXPlaybackUiState,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current.applicationContext
+    val qualityClient = remember(context) {
+        NeteaseQualityClient(
+            cookieProvider = { NeteaseSessionStore.readCookie(context) },
+        )
+    }
     var expanded by remember { mutableStateOf(false) }
+    var selected by remember(context) {
+        mutableStateOf(
+            MusicQualityPreferences.read(context).also { MusicQualityRuntime.selected = it },
+        )
+    }
+    var actual by remember(state.mediaId) {
+        mutableStateOf(MusicQualityRuntime.actualFor(state.mediaId?.toLongOrNull()))
+    }
+    var availability by remember(state.mediaId) {
+        mutableStateOf(SongAudioAvailability.Unknown)
+    }
+
+    LaunchedEffect(state.mediaId) {
+        val songId = state.mediaId?.toLongOrNull() ?: return@LaunchedEffect
+        availability = runCatching { qualityClient.audioAvailability(songId) }
+            .getOrDefault(SongAudioAvailability.Unknown)
+    }
+    LaunchedEffect(state.mediaId, selected) {
+        val songId = state.mediaId?.toLongOrNull() ?: return@LaunchedEffect
+        while (true) {
+            actual = MusicQualityRuntime.actualFor(songId)
+            delay(180L)
+        }
+    }
+
+    val displayQuality = actual ?: selected
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -548,7 +537,7 @@ private fun MeloXQualityChipV3(modifier: Modifier = Modifier) {
                 color = Color.White.copy(alpha = 0.86f),
             )
             Text(
-                text = "标准",
+                text = displayQuality.title,
                 color = Color.White.copy(alpha = 0.86f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
@@ -559,10 +548,23 @@ private fun MeloXQualityChipV3(modifier: Modifier = Modifier) {
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            DropdownMenuItem(
-                text = { Text("标准") },
-                onClick = { expanded = false },
-            )
+            MusicQuality.entries.forEach { quality ->
+                val supported = availability.supports(quality.apiLevel) != false
+                DropdownMenuItem(
+                    enabled = supported,
+                    text = {
+                        Text(
+                            if (quality == selected) "✓ ${quality.title}" else quality.title,
+                        )
+                    },
+                    onClick = {
+                        selected = quality
+                        actual = null
+                        expanded = false
+                        PlaybackCommands.changeQuality(context, quality)
+                    },
+                )
+            }
         }
     }
 }
