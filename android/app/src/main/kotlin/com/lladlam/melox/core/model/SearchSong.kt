@@ -6,6 +6,7 @@ data class SearchSong(
     val artists: String,
     val album: String,
     val artworkUrl: String?,
+    val durationMs: Long = 0L,
 ) {
     val playbackUrl: String
         get() = "https://music.163.com/song/media/outer/url?id=$id"
