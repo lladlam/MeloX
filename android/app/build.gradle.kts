@@ -49,6 +49,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
+    // Miuix's official liquid-glass demo is built on this backdrop/RuntimeShader module.
+    // Keep minSdk 26: all shader paths are runtime-gated and fall back below API 33.
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.1")
+
     implementation("androidx.media3:media3-common:1.10.1")
     implementation("androidx.media3:media3-datasource:1.10.1")
     implementation("androidx.media3:media3-exoplayer:1.10.1")
