@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,8 +98,8 @@ fun MeloXApp(
             val sharedScope = this
             val fullPlayerVisible = showNowPlaying && playbackState.hasMedia
 
-            // The app page stays mounted for the entire player transition.
-            // Only the mini-player accessory exits while the full player enters.
+            // Keep the app page mounted while the player is open, but do not let
+            // pointer input fall through the full-screen player into the page.
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -149,6 +151,21 @@ fun MeloXApp(
                         )
                     }
                 }
+            }
+
+            if (fullPlayerVisible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    event.changes.forEach { change -> change.consume() }
+                                }
+                            }
+                        },
+                )
             }
 
             AnimatedVisibility(
