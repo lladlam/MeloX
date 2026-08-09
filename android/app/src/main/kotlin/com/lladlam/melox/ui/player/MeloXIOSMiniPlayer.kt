@@ -12,6 +12,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -101,6 +102,23 @@ fun MeloXIOSMiniPlayer(
             .padding(horizontal = 14.dp, vertical = 3.dp),
     ) {
         val miniShape = RoundedCornerShape(22.dp)
+        val dark = isSystemInDarkTheme()
+        val glassTint = if (dark) {
+            Color.Black.copy(alpha = 0.18f)
+        } else {
+            Color.White.copy(alpha = 0.46f)
+        }
+        val fallbackTint = if (dark) {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+        } else {
+            Color.White.copy(alpha = 0.78f)
+        }
+        val borderColor = if (dark) {
+            Color.White.copy(alpha = 0.13f * miniSurfaceAlpha)
+        } else {
+            Color.White.copy(alpha = 0.62f * miniSurfaceAlpha)
+        }
+
         Surface(
             modifier = sharedContainerModifier
                 .fillMaxWidth()
@@ -121,19 +139,22 @@ fun MeloXIOSMiniPlayer(
                 .meloXLiquidGlass(
                     backdrop = glassBackdrop,
                     shape = miniShape,
-                    tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.34f),
-                    fallbackTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                    tint = glassTint,
+                    fallbackTint = fallbackTint,
                     alpha = miniSurfaceAlpha,
-                    chromaticAberration = 0.10f,
+                    blurRadius = 3.dp,
+                    // The official Miuix 24dp lens is designed for its 64dp nav pill.
+                    // On this 52dp player it produces rectangular sampling artifacts,
+                    // so the mini player keeps real backdrop blur/vibrancy but no lens.
+                    refractionHeight = 0.dp,
+                    refractionAmount = 0.dp,
+                    chromaticAberration = 0f,
                 ),
             shape = miniShape,
             color = Color.Transparent,
-            border = BorderStroke(
-                0.8.dp,
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f * miniSurfaceAlpha),
-            ),
+            border = BorderStroke(0.8.dp, borderColor),
             tonalElevation = 0.dp,
-            shadowElevation = (5f * miniSurfaceAlpha).dp,
+            shadowElevation = (3f * miniSurfaceAlpha).dp,
         ) {
             Row(
                 modifier = Modifier.padding(start = 9.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
