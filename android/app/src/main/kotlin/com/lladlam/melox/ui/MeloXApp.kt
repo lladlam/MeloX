@@ -6,12 +6,16 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,8 +24,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,12 +50,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lladlam.melox.core.account.rememberNeteaseSessionStore
@@ -80,6 +89,7 @@ fun MeloXApp(
     var showNeteaseLogin by remember { mutableStateOf(false) }
     var loginReturnTab by remember { mutableStateOf(AppTab.Settings) }
     var tabBarMinimized by remember { mutableStateOf(false) }
+    var scrollAccumulator by remember { mutableFloatStateOf(0f) }
     val playbackState = rememberMeloXPlaybackUiState()
     val neteaseSession = rememberNeteaseSessionStore()
 
@@ -89,10 +99,21 @@ fun MeloXApp(
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (source == NestedScrollSource.UserInput) {
-                    when {
-                        available.y < -2.5f -> tabBarMinimized = true
-                        available.y > 2.5f -> tabBarMinimized = false
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+
+                if (available.y < 0f) {
+                    if (scrollAccumulator > 0f) scrollAccumulator = 0f
+                    scrollAccumulator += available.y
+                    if (scrollAccumulator <= -18f) {
+                        tabBarMinimized = true
+                        scrollAccumulator = 0f
+                    }
+                } else if (available.y > 0f) {
+                    if (scrollAccumulator < 0f) scrollAccumulator = 0f
+                    scrollAccumulator += available.y
+                    if (scrollAccumulator >= 18f) {
+                        tabBarMinimized = false
+                        scrollAccumulator = 0f
                     }
                 }
                 return Offset.Zero
@@ -113,9 +134,11 @@ fun MeloXApp(
     }
 
     LaunchedEffect(selectedTab) {
-        // SwiftUI expands the tab bar when switching roots; subsequent downward
-        // scrolling may minimize it again via .tabBarMinimizeBehavior(.onScrollDown).
+        // MeloX / iOS 26 expands the floating tab chrome when switching roots.
+        // The same progress then runs backwards if the user taps a tab while the
+        // bar is midway through its compact transition.
         tabBarMinimized = false
+        scrollAccumulator = 0f
     }
 
     BackHandler(enabled = showNowPlaying && !showNeteaseLogin) {
@@ -127,34 +150,15 @@ fun MeloXApp(
             val sharedScope = this
             val fullPlayerVisible = showNowPlaying && playbackState.hasMedia
 
+            // The app content intentionally occupies the full screen. The bottom
+            // chrome is no longer Scaffold.bottomBar: it floats above the content,
+            // so rows remain visible through the translucent glass surfaces.
             Scaffold(
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(tabBarMinimizeConnection),
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 containerColor = MaterialTheme.colorScheme.background,
-                bottomBar = {
-                    MeloXBottomChrome(
-                        selectedTab = selectedTab,
-                        onSelect = { selectedTab = it },
-                        hasMedia = playbackState.hasMedia,
-                        minimized = tabBarMinimized,
-                        miniPlayer = {
-                            AnimatedVisibility(
-                                visible = !fullPlayerVisible,
-                                enter = EnterTransition.None,
-                                exit = ExitTransition.None,
-                            ) {
-                                MeloXIOSMiniPlayer(
-                                    state = playbackState,
-                                    onExpand = { showNowPlaying = true },
-                                    sharedTransitionScope = sharedScope,
-                                    animatedVisibilityScope = this,
-                                )
-                            }
-                        },
-                    )
-                },
             ) { innerPadding ->
                 Box(
                     modifier = Modifier
@@ -189,6 +193,33 @@ fun MeloXApp(
                 }
             }
 
+            MeloXBottomChrome(
+                selectedTab = selectedTab,
+                onSelect = { tab ->
+                    tabBarMinimized = false
+                    selectedTab = tab
+                },
+                hasMedia = playbackState.hasMedia,
+                minimized = tabBarMinimized,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                miniPlayer = {
+                    AnimatedVisibility(
+                        visible = !fullPlayerVisible,
+                        enter = EnterTransition.None,
+                        exit = ExitTransition.None,
+                    ) {
+                        MeloXIOSMiniPlayer(
+                            state = playbackState,
+                            onExpand = { showNowPlaying = true },
+                            sharedTransitionScope = sharedScope,
+                            animatedVisibilityScope = this,
+                        )
+                    }
+                },
+            )
+
+            // Transparent hit-test barrier: pages stay mounted for the morph but
+            // never receive pointer input while the full player is on top.
             if (fullPlayerVisible) {
                 Box(
                     modifier = Modifier
@@ -264,36 +295,132 @@ private fun MeloXBottomChrome(
     onSelect: (AppTab) -> Unit,
     hasMedia: Boolean,
     minimized: Boolean,
+    modifier: Modifier = Modifier,
     miniPlayer: @Composable () -> Unit,
 ) {
+    val rawProgress by animateFloatAsState(
+        targetValue = if (minimized) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.90f,
+            stiffness = 330f,
+            visibilityThreshold = 0.001f,
+        ),
+        label = "melox-tab-minimize-progress",
+    )
+    val progress = rawProgress.coerceIn(0f, 1f)
+
+    // Stage A: labels disappear and the two chrome heights tighten first.
+    val labelStage = smoothStep(progress, 0.00f, 0.32f)
+    val sizeStage = smoothStep(progress, 0.00f, 0.36f)
+    // Stage B: left tab capsule contracts toward its anchored left edge while
+    // the mini player moves into the center slot and narrows at the same time.
+    val shrinkStage = smoothStep(progress, 0.25f, 0.82f)
+    // Stage C: only after the horizontal morph has almost finished does the
+    // entire cluster descend toward the navigation bar.
+    val dropStage = smoothStep(progress, 0.78f, 1.00f)
+
+    val navHeight = lerpDp(66.dp, 58.dp, sizeStage)
+    val searchSize = lerpDp(66.dp, 58.dp, sizeStage)
+    val expandedChromeHeight = if (hasMedia) 137.dp else 72.dp
+    val chromeHeight = lerpDp(expandedChromeHeight, 64.dp, dropStage)
+    val labelAlpha = 1f - labelStage
+    val expandedLayerAlpha = 1f - smoothStep(progress, 0.43f, 0.72f)
+    val compactLayerAlpha = smoothStep(progress, 0.52f, 0.82f)
+
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(bottom = 5.dp),
     ) {
-        if (minimized) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(chromeHeight),
+        ) {
+            val horizontalMargin = 14.dp
+            val compactSize = 58.dp
+            val expandedGap = 9.dp
+            val compactGap = 4.dp
+            val expandedNavWidth = maxWidth - horizontalMargin * 2 - expandedGap - 66.dp
+            val navWidth = lerpDp(expandedNavWidth, compactSize, shrinkStage)
+            val navRadius = lerpDp(34.dp, 29.dp, shrinkStage)
+
+            val desiredCompactMiniVisibleWidth =
+                (maxWidth - horizontalMargin * 2 - compactSize * 2 - compactGap * 2)
+                    .coerceAtLeast(80.dp)
+            // MeloXIOSMiniPlayer owns 14 dp of horizontal padding on each side.
+            // Expand the wrapper by 28 dp so the visible glass surface lands
+            // exactly between the two 58 dp compact circles.
+            val compactMiniWrapperWidth =
+                (desiredCompactMiniVisibleWidth + 28.dp).coerceAtMost(maxWidth)
+            val compactMiniWrapperX = horizontalMargin + compactSize + compactGap - 14.dp
+            val miniWrapperWidth = lerpDp(maxWidth, compactMiniWrapperWidth, shrinkStage)
+            val miniWrapperX = lerpDp(0.dp, compactMiniWrapperX, shrinkStage)
+            val miniLift = lerpDp(72.dp, 0.dp, shrinkStage)
+
+            if (hasMedia) {
+                Box(
                     modifier = Modifier
-                        .size(58.dp)
-                        .clickable { onSelect(selectedTab) },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                    border = BorderStroke(
-                        0.8.dp,
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    ),
-                    shadowElevation = 7.dp,
-                    tonalElevation = 0.dp,
+                        .align(Alignment.BottomStart)
+                        .offset(
+                            x = miniWrapperX,
+                            y = -3.dp - miniLift,
+                        )
+                        .width(miniWrapperWidth),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    miniPlayer()
+                }
+            }
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = horizontalMargin, y = -3.dp)
+                    .width(navWidth)
+                    .height(navHeight),
+                shape = RoundedCornerShape(navRadius),
+                color = bottomGlassColor(),
+                border = BorderStroke(
+                    0.8.dp,
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                ),
+                shadowElevation = lerpDp(7.dp, 10.dp, progress),
+                tonalElevation = 0.dp,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = expandedLayerAlpha }
+                            .padding(horizontal = 5.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val primaryTabs = listOf(
+                            AppTab.Home to RootGlyph.Home,
+                            AppTab.Explore to RootGlyph.Explore,
+                            AppTab.Library to RootGlyph.Library,
+                            AppTab.Settings to RootGlyph.Settings,
+                        )
+                        primaryTabs.forEach { (tab, glyph) ->
+                            RootTabButton(
+                                tab = tab,
+                                glyph = glyph,
+                                selected = selectedTab == tab,
+                                labelAlpha = labelAlpha,
+                                onClick = { onSelect(tab) },
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = compactLayerAlpha }
+                            .clickable { onSelect(selectedTab) },
+                        contentAlignment = Alignment.Center,
+                    ) {
                         RootGlyphIcon(
                             glyph = selectedTab.rootGlyph(),
                             modifier = Modifier.size(27.dp),
@@ -301,107 +428,27 @@ private fun MeloXBottomChrome(
                         )
                     }
                 }
-
-                if (hasMedia) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        miniPlayer()
-                    }
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-
-                Surface(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .clickable { onSelect(AppTab.Search) },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                    border = BorderStroke(
-                        0.8.dp,
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                    ),
-                    shadowElevation = 7.dp,
-                    tonalElevation = 0.dp,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        RootGlyphIcon(
-                            glyph = RootGlyph.Search,
-                            modifier = Modifier.size(29.dp),
-                            color = if (selectedTab == AppTab.Search) {
-                                MeloXAccent
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                        )
-                    }
-                }
-            }
-            return@Column
-        }
-
-        if (hasMedia) miniPlayer()
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(66.dp),
-                shape = RoundedCornerShape(34.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
-                border = BorderStroke(
-                    0.8.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                ),
-                shadowElevation = 7.dp,
-                tonalElevation = 0.dp,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 5.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val primaryTabs = listOf(
-                        AppTab.Home to RootGlyph.Home,
-                        AppTab.Explore to RootGlyph.Explore,
-                        AppTab.Library to RootGlyph.Library,
-                        AppTab.Settings to RootGlyph.Settings,
-                    )
-                    primaryTabs.forEach { (tab, glyph) ->
-                        RootTabButton(
-                            tab = tab,
-                            glyph = glyph,
-                            selected = selectedTab == tab,
-                            onClick = { onSelect(tab) },
-                        )
-                    }
-                }
             }
 
             Surface(
                 modifier = Modifier
-                    .size(66.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = -horizontalMargin, y = -3.dp)
+                    .size(searchSize)
                     .clickable { onSelect(AppTab.Search) },
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+                color = bottomGlassColor(),
                 border = BorderStroke(
                     0.8.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
                 ),
-                shadowElevation = 7.dp,
+                shadowElevation = lerpDp(7.dp, 10.dp, progress),
                 tonalElevation = 0.dp,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     RootGlyphIcon(
                         glyph = RootGlyph.Search,
-                        modifier = Modifier.size(31.dp),
+                        modifier = Modifier.size(lerpDp(31.dp, 29.dp, sizeStage)),
                         color = if (selectedTab == AppTab.Search) {
                             MeloXAccent
                         } else {
@@ -415,10 +462,19 @@ private fun MeloXBottomChrome(
 }
 
 @Composable
+private fun bottomGlassColor(): Color {
+    // This is deliberately much more translucent than the old Scaffold bottomBar.
+    // Because the chrome is now an overlay, list artwork/text remains visible
+    // through this layer and reads like floating glass instead of an opaque footer.
+    return MaterialTheme.colorScheme.surface.copy(alpha = 0.68f)
+}
+
+@Composable
 private fun RootTabButton(
     tab: AppTab,
     glyph: RootGlyph,
     selected: Boolean,
+    labelAlpha: Float,
     onClick: () -> Unit,
 ) {
     val foreground = if (selected) MeloXAccent else MaterialTheme.colorScheme.onSurface
@@ -430,13 +486,14 @@ private fun RootTabButton(
                 else Color.Transparent,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         RootGlyphIcon(glyph = glyph, modifier = Modifier.size(26.dp), color = foreground)
         Text(
             text = tab.title,
+            modifier = Modifier.graphicsLayer { alpha = labelAlpha },
             fontSize = 10.sp,
             lineHeight = 12.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
@@ -547,3 +604,12 @@ private fun RootGlyphIcon(
         }
     }
 }
+
+private fun smoothStep(value: Float, start: Float, end: Float): Float {
+    if (end <= start) return if (value >= end) 1f else 0f
+    val t = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+private fun lerpDp(start: Dp, end: Dp, progress: Float): Dp =
+    (start.value + (end.value - start.value) * progress.coerceIn(0f, 1f)).dp
