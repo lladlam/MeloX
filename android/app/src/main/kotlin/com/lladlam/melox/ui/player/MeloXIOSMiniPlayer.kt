@@ -36,7 +36,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,15 +75,15 @@ fun MeloXIOSMiniPlayer(
         0f
     }
 
-    // #286 geometry is intentionally preserved. Only the mini-player chrome fade
-    // is extended so title/artist/transport remain visibly attached to the source
-    // surface for most of the morph. The same curve runs backwards on collapse.
+    // Keep #286 geometry untouched. Fade source chrome over most of the morph.
+    // These values are actual draw alpha below, not a parent graphics layer, so
+    // they remain effective after the chrome is lifted into SharedTransitionScope's overlay.
     val miniChromeAlpha = 1f - smoothStep(expansionProgress, 0.05f, 0.72f)
     val miniSurfaceAlpha = 1f - smoothStep(expansionProgress, 0.04f, 0.42f)
 
-    // sharedBounds is rendered in SharedTransitionScope's overlay. Without lifting
-    // these non-shared controls into that same overlay, the expanding surface can
-    // cover them before their alpha animation is visible, which looks like a snap.
+    // The shared bounds itself is rendered in SharedTransitionScope's overlay.
+    // Lift source chrome into the same overlay so it is not abruptly covered by
+    // the growing container. Its visual fade is applied to the child draw content.
     val chromeOverlayModifier =
         if (sharedTransitionScope != null) {
             with(sharedTransitionScope) {
@@ -145,10 +144,6 @@ fun MeloXIOSMiniPlayer(
             Color.White.copy(alpha = 0.54f)
         }
 
-        // Only this 52dp surface participates in the container transform. Text,
-        // transport buttons and the artwork are independent layers, so the actual
-        // mask grows from the exact mini-player rectangle instead of scaling a
-        // precomposed mini-player row into a full-screen page.
         Surface(
             modifier = sharedContainerModifier
                 .fillMaxWidth()
@@ -210,8 +205,7 @@ fun MeloXIOSMiniPlayer(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .then(chromeOverlayModifier)
-                        .graphicsLayer { alpha = miniChromeAlpha },
+                        .then(chromeOverlayModifier),
                 ) {
                     Text(
                         text = state.title.ifBlank { "正在播放" },
@@ -219,14 +213,18 @@ fun MeloXIOSMiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = miniChromeAlpha,
+                        ),
                     )
                     Text(
                         text = state.artist,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.54f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = 0.54f * miniChromeAlpha,
+                        ),
                     )
                 }
             }
@@ -235,13 +233,15 @@ fun MeloXIOSMiniPlayer(
                 kind = if (state.isPlaying) MiniGlyph.Pause else MiniGlyph.Play,
                 enabled = true,
                 onClick = state::togglePlayPause,
-                modifier = chromeOverlayModifier.graphicsLayer { alpha = miniChromeAlpha },
+                modifier = chromeOverlayModifier,
+                visualAlpha = miniChromeAlpha,
             )
             MiniVectorButton(
                 kind = MiniGlyph.Forward,
                 enabled = state.hasNext || state.repeatMode != 0,
                 onClick = state::next,
-                modifier = chromeOverlayModifier.graphicsLayer { alpha = miniChromeAlpha },
+                modifier = chromeOverlayModifier,
+                visualAlpha = miniChromeAlpha,
             )
         }
     }
@@ -255,13 +255,20 @@ private fun MiniVectorButton(
     enabled: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    visualAlpha: Float = 1f,
 ) {
-    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.94f else 0.26f)
+    val baseAlpha = if (enabled) 0.94f else 0.26f
+    val color = MaterialTheme.colorScheme.onSurface.copy(
+        alpha = baseAlpha * visualAlpha.coerceIn(0f, 1f),
+    )
     Box(
         modifier = modifier
             .size(36.dp)
             .clip(CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
+            .clickable(
+                enabled = enabled && visualAlpha > 0.05f,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(if (kind == MiniGlyph.Forward) 25.dp else 23.dp)) {
