@@ -6,20 +6,22 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -138,9 +140,6 @@ fun MeloXApp(
     }
 
     LaunchedEffect(selectedTab) {
-        // MeloX / iOS 26 expands the floating tab chrome when switching roots.
-        // The same progress then runs backwards if the user taps a tab while the
-        // bar is midway through its compact transition.
         tabBarMinimized = false
         scrollAccumulator = 0f
     }
@@ -155,10 +154,6 @@ fun MeloXApp(
             val fullPlayerVisible = showNowPlaying && playbackState.hasMedia
             val glassBackdrop = rememberLayerBackdrop()
 
-            // The app content intentionally occupies the full screen. The bottom
-            // chrome is no longer Scaffold.bottomBar: it floats above the content.
-            // layerBackdrop captures only this page layer, so the floating controls
-            // can refract/blur the actual rows beneath them without self-capturing.
             Scaffold(
                 modifier = Modifier
                     .fillMaxSize()
@@ -227,8 +222,6 @@ fun MeloXApp(
                 },
             )
 
-            // Transparent hit-test barrier: pages stay mounted for the morph but
-            // never receive pointer input while the full player is on top.
             if (fullPlayerVisible) {
                 Box(
                     modifier = Modifier
@@ -319,14 +312,9 @@ private fun MeloXBottomChrome(
     )
     val progress = rawProgress.coerceIn(0f, 1f)
 
-    // Stage A: labels disappear and the two chrome heights tighten first.
     val labelStage = smoothStep(progress, 0.00f, 0.32f)
     val sizeStage = smoothStep(progress, 0.00f, 0.36f)
-    // Stage B: left tab capsule contracts toward its anchored left edge while
-    // the mini player moves into the center slot and narrows at the same time.
     val shrinkStage = smoothStep(progress, 0.25f, 0.82f)
-    // Stage C: only after the horizontal morph has almost finished does the
-    // entire cluster descend toward the navigation bar.
     val dropStage = smoothStep(progress, 0.78f, 1.00f)
 
     val navHeight = lerpDp(66.dp, 58.dp, sizeStage)
@@ -360,9 +348,6 @@ private fun MeloXBottomChrome(
             val desiredCompactMiniVisibleWidth =
                 (maxWidth - horizontalMargin * 2 - compactSize * 2 - compactGap * 2)
                     .coerceAtLeast(80.dp)
-            // MeloXIOSMiniPlayer owns 14 dp of horizontal padding on each side.
-            // Expand the wrapper by 28 dp so the visible glass surface lands
-            // exactly between the two 58 dp compact circles.
             val compactMiniWrapperWidth =
                 (desiredCompactMiniVisibleWidth + 28.dp).coerceAtMost(maxWidth)
             val compactMiniWrapperX = horizontalMargin + compactSize + compactGap - 14.dp
@@ -384,6 +369,13 @@ private fun MeloXBottomChrome(
                 }
             }
 
+            val dark = isSystemInDarkTheme()
+            val glassBorder = if (dark) {
+                Color.White.copy(alpha = 0.14f)
+            } else {
+                Color.White.copy(alpha = 0.62f)
+            }
+
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -395,14 +387,18 @@ private fun MeloXBottomChrome(
                         shape = navShape,
                         tint = bottomLiquidGlassTint(),
                         fallbackTint = bottomGlassFallbackColor(),
+                        blurRadius = 3.dp,
+                        // Keep a restrained lens only on the large navigation pill.
+                        // Miuix's official example uses the lens on a 64dp pill and
+                        // does not enable chromatic dispersion.
+                        refractionHeight = 16.dp,
+                        refractionAmount = 10.dp,
+                        chromaticAberration = 0f,
                     ),
                 shape = navShape,
                 color = Color.Transparent,
-                border = BorderStroke(
-                    0.8.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                ),
-                shadowElevation = lerpDp(7.dp, 10.dp, progress),
+                border = BorderStroke(0.8.dp, glassBorder),
+                shadowElevation = lerpDp(3.dp, 5.dp, progress),
                 tonalElevation = 0.dp,
             ) {
                 Box(Modifier.fillMaxSize()) {
@@ -411,7 +407,6 @@ private fun MeloXBottomChrome(
                             .fillMaxSize()
                             .graphicsLayer { alpha = expandedLayerAlpha }
                             .padding(horizontal = 5.dp, vertical = 5.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val primaryTabs = listOf(
@@ -431,27 +426,27 @@ private fun MeloXBottomChrome(
                         }
                     }
 
-                    // This layer used to remain clickable even at alpha=0, which
-                    // swallowed all four expanded Tab hit targets. It only becomes
-                    // interactive after the compact icon is actually visible.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = compactLayerAlpha }
-                            .clickable(
-                                enabled = compactLayerAlpha >= 0.55f,
-                                onClick = { onSelect(selectedTab) },
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        RootGlyphIcon(
-                            glyph = selectedTab.rootGlyph(),
-                            modifier = Modifier.size(27.dp),
-                            // Compact mode uses the same neutral standalone-button
-                            // treatment as Search instead of carrying the selected
-                            // full-tab pill styling into the collapsed state.
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                    // Do not leave a transparent clickable node over the expanded
+                    // tab row. Compose hit testing can still choose a transparent
+                    // sibling as the top hit path, so the compact layer only exists
+                    // once the morph has actually entered compact mode.
+                    if (progress > 0.50f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = compactLayerAlpha }
+                                .clickable(
+                                    enabled = progress >= 0.68f,
+                                    onClick = { onSelect(selectedTab) },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            RootGlyphIcon(
+                                glyph = selectedTab.rootGlyph(),
+                                modifier = Modifier.size(27.dp),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
                     }
                 }
             }
@@ -466,15 +461,18 @@ private fun MeloXBottomChrome(
                         shape = CircleShape,
                         tint = bottomLiquidGlassTint(),
                         fallbackTint = bottomGlassFallbackColor(),
+                        blurRadius = 3.dp,
+                        // A 58dp circle is too small for the 24dp Miuix nav lens;
+                        // use real backdrop blur/vibrancy here without refraction.
+                        refractionHeight = 0.dp,
+                        refractionAmount = 0.dp,
+                        chromaticAberration = 0f,
                     )
                     .clickable { onSelect(AppTab.Search) },
                 shape = CircleShape,
                 color = Color.Transparent,
-                border = BorderStroke(
-                    0.8.dp,
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                ),
-                shadowElevation = lerpDp(7.dp, 10.dp, progress),
+                border = BorderStroke(0.8.dp, glassBorder),
+                shadowElevation = lerpDp(3.dp, 5.dp, progress),
                 tonalElevation = 0.dp,
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -495,14 +493,22 @@ private fun MeloXBottomChrome(
 
 @Composable
 private fun bottomLiquidGlassTint(): Color =
-    MaterialTheme.colorScheme.surface.copy(alpha = 0.34f)
+    if (isSystemInDarkTheme()) {
+        Color.Black.copy(alpha = 0.18f)
+    } else {
+        Color.White.copy(alpha = 0.48f)
+    }
 
 @Composable
 private fun bottomGlassFallbackColor(): Color =
-    MaterialTheme.colorScheme.surface.copy(alpha = 0.68f)
+    if (isSystemInDarkTheme()) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.76f)
+    } else {
+        Color.White.copy(alpha = 0.82f)
+    }
 
 @Composable
-private fun RootTabButton(
+private fun RowScope.RootTabButton(
     tab: AppTab,
     glyph: RootGlyph,
     selected: Boolean,
@@ -512,13 +518,15 @@ private fun RootTabButton(
     val foreground = if (selected) MeloXAccent else MaterialTheme.colorScheme.onSurface
     Column(
         modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
             .clip(RoundedCornerShape(28.dp))
             .background(
-                if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f)
+                if (selected) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.045f)
                 else Color.Transparent,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
