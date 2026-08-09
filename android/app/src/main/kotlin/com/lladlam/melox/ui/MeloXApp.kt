@@ -43,6 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -76,8 +79,26 @@ fun MeloXApp(
     var showNowPlaying by remember { mutableStateOf(false) }
     var showNeteaseLogin by remember { mutableStateOf(false) }
     var loginReturnTab by remember { mutableStateOf(AppTab.Settings) }
+    var tabBarMinimized by remember { mutableStateOf(false) }
     val playbackState = rememberMeloXPlaybackUiState()
     val neteaseSession = rememberNeteaseSessionStore()
+
+    val tabBarMinimizeConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    when {
+                        available.y < -2.5f -> tabBarMinimized = true
+                        available.y > 2.5f -> tabBarMinimized = false
+                    }
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     LaunchedEffect(openNowPlayingRequest, playbackState.hasMedia) {
         if (openNowPlayingRequest > 0 && playbackState.hasMedia) {
@@ -91,6 +112,12 @@ fun MeloXApp(
         }
     }
 
+    LaunchedEffect(selectedTab) {
+        // SwiftUI expands the tab bar when switching roots; subsequent downward
+        // scrolling may minimize it again via .tabBarMinimizeBehavior(.onScrollDown).
+        tabBarMinimized = false
+    }
+
     BackHandler(enabled = showNowPlaying && !showNeteaseLogin) {
         showNowPlaying = false
     }
@@ -100,10 +127,10 @@ fun MeloXApp(
             val sharedScope = this
             val fullPlayerVisible = showNowPlaying && playbackState.hasMedia
 
-            // Keep the app page mounted while the player is open, but do not let
-            // pointer input fall through the full-screen player into the page.
             Scaffold(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(tabBarMinimizeConnection),
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 containerColor = MaterialTheme.colorScheme.background,
                 bottomBar = {
@@ -111,6 +138,7 @@ fun MeloXApp(
                         selectedTab = selectedTab,
                         onSelect = { selectedTab = it },
                         hasMedia = playbackState.hasMedia,
+                        minimized = tabBarMinimized,
                         miniPlayer = {
                             AnimatedVisibility(
                                 visible = !fullPlayerVisible,
@@ -161,10 +189,6 @@ fun MeloXApp(
                 }
             }
 
-            // Transparent hit-test barrier: the home/library/search pages stay
-            // mounted for the morph animation, but can never receive input while
-            // the full player is on top. Keep this below the player host so player
-            // controls remain interactive.
             if (fullPlayerVisible) {
                 Box(
                     modifier = Modifier
@@ -239,6 +263,7 @@ private fun MeloXBottomChrome(
     selectedTab: AppTab,
     onSelect: (AppTab) -> Unit,
     hasMedia: Boolean,
+    minimized: Boolean,
     miniPlayer: @Composable () -> Unit,
 ) {
     Column(
@@ -247,6 +272,73 @@ private fun MeloXBottomChrome(
             .navigationBarsPadding()
             .padding(bottom = 5.dp),
     ) {
+        if (minimized) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clickable { onSelect(selectedTab) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    border = BorderStroke(
+                        0.8.dp,
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    ),
+                    shadowElevation = 7.dp,
+                    tonalElevation = 0.dp,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        RootGlyphIcon(
+                            glyph = selectedTab.rootGlyph(),
+                            modifier = Modifier.size(27.dp),
+                            color = MeloXAccent,
+                        )
+                    }
+                }
+
+                if (hasMedia) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        miniPlayer()
+                    }
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .size(58.dp)
+                        .clickable { onSelect(AppTab.Search) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    border = BorderStroke(
+                        0.8.dp,
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                    ),
+                    shadowElevation = 7.dp,
+                    tonalElevation = 0.dp,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        RootGlyphIcon(
+                            glyph = RootGlyph.Search,
+                            modifier = Modifier.size(29.dp),
+                            color = if (selectedTab == AppTab.Search) {
+                                MeloXAccent
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                    }
+                }
+            }
+            return@Column
+        }
+
         if (hasMedia) miniPlayer()
 
         Row(
@@ -354,6 +446,14 @@ private fun RootTabButton(
 }
 
 private enum class RootGlyph { Home, Explore, Library, Settings, Search }
+
+private fun AppTab.rootGlyph(): RootGlyph = when (this) {
+    AppTab.Home -> RootGlyph.Home
+    AppTab.Explore -> RootGlyph.Explore
+    AppTab.Library -> RootGlyph.Library
+    AppTab.Settings -> RootGlyph.Settings
+    AppTab.Search -> RootGlyph.Search
+}
 
 @Composable
 private fun RootGlyphIcon(
