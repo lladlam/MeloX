@@ -319,7 +319,7 @@ private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
                 )
             }
 
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(20.dp))
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
@@ -342,7 +342,10 @@ private fun MeloXArtworkPageV3(state: MeloXPlaybackUiState) {
                 )
             }
 
-            Spacer(Modifier.weight(1f))
+            // Keep the metadata attached to the progress control like MeloX/iOS.
+            // Any spare vertical space belongs above the artwork, not between
+            // artist metadata and the transport controls.
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -382,7 +385,7 @@ private fun MeloXProgressControlV3(state: MeloXPlaybackUiState) {
     var scrubbing by remember { mutableStateOf(false) }
     var localProgress by remember { mutableFloatStateOf(sourceProgress) }
     val trackHeight by animateDpAsState(
-        targetValue = if (scrubbing) 5.dp else 3.dp,
+        targetValue = if (scrubbing) 6.dp else 4.dp,
         animationSpec = tween(120),
         label = "progress-track-height",
     )
@@ -521,25 +524,32 @@ private fun MeloXQualityChipV3(
                     scaleX = scale
                     scaleY = scale
                 }
+                .height(24.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .background(Color.White.copy(alpha = 0.12f))
                 .clickable(
                     interactionSource = interaction,
                     indication = null,
                 ) { expanded = true }
-                .padding(horizontal = 9.dp, vertical = 4.dp),
+                .padding(horizontal = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            CupertinoGlyph(
-                kind = CupertinoGlyphKind.Waveform,
-                modifier = Modifier.size(11.dp),
-                color = Color.White.copy(alpha = 0.86f),
-            )
+            Box(
+                modifier = Modifier.size(14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CupertinoGlyph(
+                    kind = CupertinoGlyphKind.Waveform,
+                    modifier = Modifier.size(12.dp),
+                    color = Color.White.copy(alpha = 0.86f),
+                )
+            }
             Text(
                 text = displayQuality.title,
                 color = Color.White.copy(alpha = 0.86f),
                 fontSize = 11.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.Medium,
             )
         }
