@@ -8,7 +8,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,17 +23,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.BlurredEdgeTreatment
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -59,6 +53,10 @@ fun MeloXIOSNowPlayingSharedHost(
 
     val backdropAlpha = smoothStep(expansionProgress, 0.04f, 0.72f)
     val fullPlayerAlpha = smoothStep(expansionProgress, 0.64f, 0.98f)
+    // The expansion surface and the final player use the same MeloX palette.
+    // Cross-fade the two layers rather than stacking them at full opacity, or
+    // the palette becomes noticeably darker in the last third of the morph.
+    val expansionBackdropAlpha = backdropAlpha * (1f - fullPlayerAlpha)
     val cornerRadius = (22f * (1f - smoothStep(expansionProgress, 0f, 0.82f))).dp
 
     val sharedContainerModifier = with(sharedTransitionScope) {
@@ -78,17 +76,21 @@ fun MeloXIOSNowPlayingSharedHost(
             .fillMaxSize()
             .clip(RoundedCornerShape(cornerRadius)),
     ) {
-        MeloXExpansionBackdrop(
-            artworkUrl = state.artworkUrl,
-            alpha = backdropAlpha,
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = expansionBackdropAlpha },
+        ) {
+            MeloXFlowingLightBackdrop(
+                artworkUrl = state.artworkUrl,
+                isPlaying = state.isPlaying,
+            )
+        }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    alpha = fullPlayerAlpha
-                },
+                .graphicsLayer { alpha = fullPlayerAlpha },
         ) {
             MeloXIOSNowPlayingV2(
                 state = state,
@@ -100,56 +102,6 @@ fun MeloXIOSNowPlayingSharedHost(
             state = state,
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
-        )
-    }
-}
-
-@Composable
-private fun MeloXExpansionBackdrop(
-    artworkUrl: String?,
-    alpha: Float,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { this.alpha = alpha }
-            .background(Color.Black),
-    ) {
-        if (!artworkUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = artworkUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = 1.32f
-                        scaleY = 1.32f
-                    }
-                    .blur(
-                        radius = 48.dp,
-                        edgeTreatment = BlurredEdgeTreatment.Unbounded,
-                    ),
-            )
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.09f)),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.01f),
-                            Color.Black.copy(alpha = 0.08f),
-                            Color.Black.copy(alpha = 0.44f),
-                        ),
-                    ),
-                ),
         )
     }
 }
