@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lladlam.melox.core.account.NeteaseSessionStore
 import com.lladlam.melox.core.lyrics.LyricLine
 import com.lladlam.melox.core.lyrics.LyricsDocument
 import com.lladlam.melox.core.network.NeteaseSearchClient
@@ -44,7 +46,12 @@ fun MeloXLyricsPanel(
     state: MeloXPlaybackUiState,
     modifier: Modifier = Modifier,
 ) {
-    val client = remember { NeteaseSearchClient() }
+    val context = LocalContext.current.applicationContext
+    val client = remember(context) {
+        NeteaseSearchClient(
+            cookieProvider = { NeteaseSessionStore.readCookie(context) },
+        )
+    }
     val listState = rememberLazyListState()
     val mediaId = state.mediaId
     var lyrics by remember(mediaId) { mutableStateOf<LyricsDocument?>(null) }
