@@ -5,6 +5,9 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.ResolvingDataSource
+import com.lladlam.melox.core.audio.MusicQuality
+import com.lladlam.melox.core.audio.MusicQualityRuntime
+import com.lladlam.melox.core.audio.NeteaseQualityClient
 import com.lladlam.melox.core.network.NeteaseSearchClient
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -12,12 +15,17 @@ import java.util.concurrent.ConcurrentHashMap
 @OptIn(UnstableApi::class)
 class NeteasePlaybackResolver(
     private val cookieProvider: () -> String = { "" },
+    @Suppress("UNUSED_PARAMETER")
     private val client: NeteaseSearchClient = NeteaseSearchClient(cookieProvider = cookieProvider),
 ) : ResolvingDataSource.Resolver {
-    private val resolvedUris = ConcurrentHashMap<Long, Uri>()
+    private data class ResolveKey(
+        val songId: Long,
+        val quality: MusicQuality,
+        val cookieHeader: String,
+    )
 
-    @Volatile
-    private var cachedCookieHeader: String = cookieProvider()
+    private val resolvedUris = ConcurrentHashMap<ResolveKey, Uri>()
+    private val qualityClient = NeteaseQualityClient(cookieProvider = cookieProvider)
 
     override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {
         val uri = dataSpec.uri
@@ -27,24 +35,20 @@ class NeteasePlaybackResolver(
 
         val songId = uri.lastPathSegment?.toLongOrNull()
             ?: throw IOException("Invalid MeloX song URI: $uri")
-
-        // Playback URLs are permission-sensitive. If the user logs in/out or the
-        // MUSIC_U cookie is refreshed, never reuse a URL resolved under the old
-        // session. This is especially important for VIP tracks.
+        val requestedQuality = MusicQuality.fromApiLevel(uri.getQueryParameter(QUALITY_QUERY))
+            ?: MusicQualityRuntime.selected
         val currentCookieHeader = cookieProvider()
-        if (currentCookieHeader != cachedCookieHeader) {
-            synchronized(resolvedUris) {
-                if (currentCookieHeader != cachedCookieHeader) {
-                    resolvedUris.clear()
-                    cachedCookieHeader = currentCookieHeader
-                }
-            }
-        }
+        val key = ResolveKey(songId, requestedQuality, currentCookieHeader)
 
-        val resolved = resolvedUris[songId] ?: run {
-            val resolvedUrl = client.playbackUrlBlocking(songId)
-            Uri.parse(resolvedUrl).also { resolvedUri ->
-                resolvedUris[songId] = resolvedUri
+        val resolved = resolvedUris[key] ?: run {
+            val source = qualityClient.playbackSourceBlocking(
+                songId = songId,
+                requestedQuality = requestedQuality,
+            )
+            Uri.parse(source.url).also { resolvedUri ->
+                // A quality or login change creates a different ResolveKey, so a
+                // stale lower-quality CDN URL can never shadow the new request.
+                resolvedUris[key] = resolvedUri
             }
         }
 
@@ -54,18 +58,25 @@ class NeteasePlaybackResolver(
     override fun resolveReportedUri(uri: Uri): Uri {
         if (uri.scheme != MELOX_SCHEME || uri.host != SONG_HOST) return uri
         val songId = uri.lastPathSegment?.toLongOrNull() ?: return uri
-        return resolvedUris[songId] ?: uri
+        val requestedQuality = MusicQuality.fromApiLevel(uri.getQueryParameter(QUALITY_QUERY))
+            ?: MusicQualityRuntime.selected
+        val currentCookieHeader = cookieProvider()
+        return resolvedUris[ResolveKey(songId, requestedQuality, currentCookieHeader)] ?: uri
     }
 
     companion object {
         private const val MELOX_SCHEME = "melox"
         private const val SONG_HOST = "song"
+        private const val QUALITY_QUERY = "quality"
 
-        fun uriForSong(songId: Long): Uri =
-            Uri.Builder()
-                .scheme(MELOX_SCHEME)
-                .authority(SONG_HOST)
-                .appendPath(songId.toString())
-                .build()
+        fun uriForSong(
+            songId: Long,
+            quality: MusicQuality = MusicQualityRuntime.selected,
+        ): Uri = Uri.Builder()
+            .scheme(MELOX_SCHEME)
+            .authority(SONG_HOST)
+            .appendPath(songId.toString())
+            .appendQueryParameter(QUALITY_QUERY, quality.apiLevel)
+            .build()
     }
 }
